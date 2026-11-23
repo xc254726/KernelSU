@@ -79,6 +79,7 @@ fun SettingPager(
             )
         },
         onOpenAbout = { navigator.push(Route.About) },
+        onOpenListen = { navigator.push(Route.Listen) },
     )
 
     when (LocalUiMode.current) {

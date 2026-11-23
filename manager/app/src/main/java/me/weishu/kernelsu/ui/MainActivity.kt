@@ -94,6 +94,7 @@ import me.weishu.kernelsu.ui.screen.modulerepo.ModuleRepoScreen
 import me.weishu.kernelsu.ui.screen.scriptrun.ScriptRunScreen
 import me.weishu.kernelsu.ui.screen.settings.SettingPager
 import me.weishu.kernelsu.ui.screen.sulog.SulogScreen
+import me.weishu.kernelsu.ui.screen.listen.ListenScreen
 import me.weishu.kernelsu.ui.screen.superuser.SuperUserPager
 import me.weishu.kernelsu.ui.screen.template.AppProfileTemplateScreen
 import me.weishu.kernelsu.ui.screen.templateeditor.TemplateEditorScreen
@@ -253,6 +254,7 @@ open class MainActivity : ComponentActivity() {
                             entry<Route.Main>(swipeDismiss = swipeDismiss) { mainScreenEntry() }
                             entry<Route.About>(swipeDismiss = swipeDismiss) { AboutScreen() }
                             entry<Route.Sulog>(swipeDismiss = swipeDismiss) { SulogScreen() }
+                            entry<Route.Listen>(swipeDismiss = swipeDismiss) { ListenScreen() }
                             entry<Route.ColorPalette>(swipeDismiss = swipeDismiss) { ColorPaletteScreen() }
                             entry<Route.AppProfileTemplate>(swipeDismiss = swipeDismiss) { AppProfileTemplateScreen() }
                             entry<Route.TemplateEditor>(swipeDismiss = swipeDismiss) { key -> TemplateEditorScreen(key.template, key.readOnly) }
@@ -562,7 +564,11 @@ fun MainPage(
         0 -> HomePager(navigator, bottomInnerPadding, isCurrentPage)
         1 -> SuperUserPager(navigator, bottomInnerPadding, isCurrentPage)
         2 -> ModulePager(bottomInnerPadding, isCurrentPage)
-        3 -> SettingPager(navigator, bottomInnerPadding, isCurrentPage)
+        3 -> me.weishu.kernelsu.ui.screen.filemanager.FileManagerScreen(
+            bottomPadding = bottomInnerPadding,
+            isTab = true,
+        )
+        4 -> SettingPager(navigator, bottomInnerPadding, isCurrentPage)
     }
 }
 @Composable
