@@ -44,8 +44,8 @@ jobs:
   generate-key:
     runs-on: ubuntu-latest
     outputs:
-      expected_size: ${{ steps.extract.outputs.expected_size }}
-      expected_hash: ${{ steps.extract.outputs.expected_hash }}
+      expected_size: ${{ steps.extract.outputs.expected_size || steps.extractprod.outputs.expected_size }}
+      expected_hash: ${{ steps.extract.outputs.expected_hash || steps.extractprod.outputs.expected_hash }}
       keystore: ${{ steps.gen.outputs.keystore }}
       keystore_password: ${{ steps.gen.outputs.keystore_password }}
       key_password: ${{ steps.gen.outputs.key_password }}
@@ -91,6 +91,32 @@ jobs:
 
           # Calculate SHA256 hash
           HASH=$(sha256sum pr-cert.der | awk '{print $1}')
+          echo "expected_hash=$HASH" >> $GITHUB_OUTPUT
+
+          echo "Certificate size: $SIZE_HEX ($SIZE_DEC bytes)"
+          echo "Certificate hash: $HASH"
+
+      - name: Extract certificate hash and size (prod key)
+        if: github.event_name != 'pull_request'
+        id: extractprod
+        env:
+          PROD_KEYSTORE: ${{ secrets.KEYSTORE }}
+          PROD_KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          PROD_KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+        run: |
+          echo "$PROD_KEYSTORE" | base64 -d > prod-key.p12
+
+          # Export DER certificate (PKCS12)
+          openssl pkcs12 -in prod-key.p12 -nokeys -clcerts -outform DER \
+            -out prod-cert.der -passin "pass:$PROD_KEYSTORE_PASSWORD"
+
+          # Calculate size in hex
+          SIZE_DEC=$(stat -c%s prod-cert.der)
+          SIZE_HEX=$(printf '0x%04x' "$SIZE_DEC")
+          echo "expected_size=$SIZE_HEX" >> $GITHUB_OUTPUT
+
+          # Calculate SHA256 hash
+          HASH=$(sha256sum prod-cert.der | awk '{print $1}')
           echo "expected_hash=$HASH" >> $GITHUB_OUTPUT
 
           echo "Certificate size: $SIZE_HEX ($SIZE_DEC bytes)"
