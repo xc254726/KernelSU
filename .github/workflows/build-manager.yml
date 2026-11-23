@@ -106,9 +106,10 @@ jobs:
         run: |
           echo "$PROD_KEYSTORE" | base64 -d > prod-key.p12
 
-          # Export DER certificate (PKCS12)
-          openssl pkcs12 -in prod-key.p12 -nokeys -clcerts -outform DER \
-            -out prod-cert.der -passin "pass:$PROD_KEYSTORE_PASSWORD"
+          # Export DER certificate (PKCS12 -> PEM -> DER)
+          openssl pkcs12 -in prod-key.p12 -nokeys -clcerts \
+            -passin "pass:$PROD_KEYSTORE_PASSWORD" -out prod-cert.pem
+          openssl x509 -in prod-cert.pem -outform DER -out prod-cert.der
 
           # Calculate size in hex
           SIZE_DEC=$(stat -c%s prod-cert.der)
