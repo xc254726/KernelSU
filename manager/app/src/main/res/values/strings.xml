@@ -439,4 +439,6 @@
     <string name="listen_apps_no_match">No matching app</string>
     <string name="listen_apps_reload">Reload</string>
     <string name="listen_rule_change_app">Change</string>
+    <string name="back">Back</string>
+    <string name="cancel">Cancel</string>
 </resources>
