@@ -32,13 +32,6 @@ fun SelectLkmDialog(
                     content = listOf(
                         {
                             SegmentedRadioItem(
-                                title = stringResource(R.string.install_lkm_kowsu),
-                                selected = currentVariant == LkmVariant.KOWSU,
-                                onClick = { onSelectVariant(LkmVariant.KOWSU) }
-                            )
-                        },
-                        {
-                            SegmentedRadioItem(
                                 title = stringResource(R.string.install_lkm_xxksu),
                                 selected = currentVariant == LkmVariant.XXKSU,
                                 onClick = { onSelectVariant(LkmVariant.XXKSU) }

@@ -4,7 +4,6 @@ import androidx.compose.runtime.Immutable
 import me.weishu.kernelsu.ui.util.LkmSelection
 
 enum class LkmVariant {
-    KOWSU,
     XXKSU,
     CUSTOM
 }

@@ -60,6 +60,9 @@ jobs:
 
         curl -sSL https://raw.githubusercontent.com/KOWX712/files/main/KowSU/xxksu.patch | patch -p1
 
+        # rebrand: report variant as nmlkm instead of xxKSU
+        sed -i 's/"xxKSU"/"nmlkm"/' kernel/supercall/supercall.c
+
         sed -i "s/CFLAGS_ksu.o += -DKSU_VERSION=.*/CFLAGS_ksu.o += -DKSU_VERSION=${{ steps.version.outputs.KSU_VERSION }}/" kernel/Makefile
 
     - name: Build kernelsu.ko

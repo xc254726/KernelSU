@@ -61,7 +61,7 @@ fun InstallScreen() {
     var remotePartitions by rememberSaveable { mutableStateOf(emptyList<String>()) }
     var remotePartitionSelectionIndex by rememberSaveable { mutableIntStateOf(0) }
     var lkmSelection by rememberSaveable { mutableStateOf<LkmSelection>(LkmSelection.KmiNone) }
-    var lkmVariant by rememberSaveable { mutableStateOf(LkmVariant.KOWSU) }
+    var lkmVariant by rememberSaveable { mutableStateOf(LkmVariant.XXKSU) }
     val showLkmDialog = rememberSaveable { mutableStateOf(false) }
     var partitionSelectionIndex by rememberSaveable { mutableIntStateOf(0) }
     var hasCustomSelected by rememberSaveable { mutableStateOf(false) }
@@ -133,7 +133,6 @@ fun InstallScreen() {
             }
             // Determine final LKM selection based on variant
             val finalLkmSelection = when (lkmVariant) {
-                LkmVariant.KOWSU -> lkmSelection
                 LkmVariant.XXKSU -> {
                     // Convert current selection to XX variant
                     val currentSelection = lkmSelection
@@ -176,7 +175,6 @@ fun InstallScreen() {
         onSelected = { kmi ->
             kmi?.let {
                 lkmSelection = when (lkmVariant) {
-                    LkmVariant.KOWSU -> LkmSelection.KmiString(it)
                     LkmVariant.XXKSU -> LkmSelection.KmiStringXX(it)
                     LkmVariant.CUSTOM -> LkmSelection.KmiString(it)
                 }
@@ -229,12 +227,12 @@ fun InstallScreen() {
                     lkmSelection = LkmSelection.LkmUri(uri)
                 } else {
                     lkmSelection = LkmSelection.KmiNone
-                    lkmVariant = LkmVariant.KOWSU
+                    lkmVariant = LkmVariant.XXKSU
                     showMessage(resources.getString(R.string.install_only_support_ko_file))
                 }
             }
         } else {
-            lkmVariant = LkmVariant.KOWSU
+            lkmVariant = LkmVariant.XXKSU
             lkmSelection = LkmSelection.KmiNone
         }
     }
@@ -298,12 +296,12 @@ fun InstallScreen() {
         },
         onClearLkm = {
             lkmSelection = LkmSelection.KmiNone
-            lkmVariant = LkmVariant.KOWSU
+            lkmVariant = LkmVariant.XXKSU
         },
         onSelectLkmVariant = { variant ->
             lkmVariant = variant
             when (variant) {
-                LkmVariant.KOWSU, LkmVariant.XXKSU -> {
+                LkmVariant.XXKSU -> {
                     lkmSelection = LkmSelection.KmiNone
                     showLkmDialog.value = false
                 }

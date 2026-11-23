@@ -200,7 +200,6 @@ internal fun InstallScreenMiuix(
                                     .padding(top = 12.dp),
                             ) {
                                 val summaryText = when (uiState.lkmVariant) {
-                                    LkmVariant.KOWSU -> stringResource(id = R.string.install_lkm_kowsu)
                                     LkmVariant.XXKSU -> stringResource(id = R.string.install_lkm_xxksu)
                                     LkmVariant.CUSTOM -> {
                                         (uiState.lkmSelection as? LkmSelection.LkmUri)?.let {

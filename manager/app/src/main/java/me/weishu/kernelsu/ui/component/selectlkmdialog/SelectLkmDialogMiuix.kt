@@ -34,7 +34,6 @@ fun SelectLkmDialogMiuix(
     onSelectVariant: (LkmVariant) -> Unit
 ) {
     val variants = listOf(
-        LkmVariant.KOWSU to R.string.install_lkm_kowsu,
         LkmVariant.XXKSU to R.string.install_lkm_xxksu,
         LkmVariant.CUSTOM to R.string.install_upload_lkm_file
     )

@@ -45,7 +45,7 @@ data class HomeUiState(
         get() = lkmMode == true && !isLkmBundled
 
     val customLkmBadgeLabel: String?
-        get() = lkmVariant?.takeIf { it == "xxKSU" }
+        get() = lkmVariant?.takeIf { it == "xxKSU" || it == "nmlkm" }?.let { "nmlkm" }
 
     val showRootWarning: Boolean
         get() = ksuVersion != null && !isRootAvailable
