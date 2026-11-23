@@ -183,7 +183,7 @@ androidComponents {
 
 base {
     archivesName.set(
-        "${managerName.replace(" ", "_")}_${managerVersionName}_${managerVersionCode}"
+        "Nongmin_${managerVersionName}_${managerVersionCode}"
     )
 }
 
