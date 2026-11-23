@@ -97,7 +97,7 @@ private const val BOOT_SCRIPT = "/data/adb/service.d/sb-autotype.sh"
 private const val LEGACY_RULES = "/data/adb/modules/sb-autotype/rules.conf"
 
 /** 改动 assets 里的脚本时把这个数字加一，下次进页面会自动覆盖更新 */
-private const val BUNDLED_VERSION = "4"
+private const val BUNDLED_VERSION = "5"
 
 private const val STATUS_SCRIPT = """
 [ -d /data/adb/sb_autotype ] && echo DIR=1 || echo DIR=0
@@ -688,6 +688,7 @@ private fun RuleEditContent(
             value = rule.text,
             onValueChange = { onChange(rule.copy(text = it)) },
             label = { Text(stringResource(R.string.listen_rule_text)) },
+            supportingText = { Text(stringResource(R.string.listen_rule_text_hint)) },
             singleLine = true,
             modifier = Modifier.fillMaxWidth(),
         )

@@ -417,6 +417,7 @@
     <string name="listen_rule_edit">Edit rule</string>
     <string name="listen_rule_pick_app">Tap to pick an app</string>
     <string name="listen_rule_text">Text to type</string>
+    <string name="listen_rule_text_hint">Separate multiple entries with \\n; each auto-presses Enter</string>
     <string name="listen_rule_input">Types "%1$s"</string>
     <string name="listen_rule_input_empty">No text</string>
     <string name="listen_rule_delay">Delay (ms)</string>

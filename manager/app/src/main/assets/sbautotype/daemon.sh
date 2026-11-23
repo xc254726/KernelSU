@@ -1,5 +1,5 @@
 #!/system/bin/sh
-# sb 自动输入 v1.6
+# sb 自动输入 v1.7
 #
 # 检测方式：pidof <包名>（扫 /proc，几乎零开销）
 #   - 目标进程集合发生变化 → 认为「刚被打开」
@@ -8,6 +8,7 @@
 #
 # 规则：$MODDIR/rules.conf，一行一条
 #   包名|输入内容|延迟毫秒|脚本路径
+#   输入内容里用字面 \n 分隔多条，每条打完自动按一次回车
 
 # 开机由内核层拉起时 PATH 可能极简，先把标准路径补齐，
 # 否则 pidof / dumpsys / input 全部找不到，表现为「打开了没反应」。
@@ -134,9 +135,25 @@ fire() {
   fi
 
   if [ -n "$text" ]; then
-    esc=$(printf '%s' "$text" | tr -d '\r\n' | sed 's/ /%s/g')
-    input text "$esc" 2>>"$LOG"
-    log "input text: $esc"
+    # 内容里的字面 \n 是「多条内容」分隔符：每条输入完自动按一次回车(keyevent 66)，
+    # 这样可以连续输入多条并逐条自动提交。用纯 shell 参数展开拆分，
+    # 不依赖 sed/awk 的转义差异，兼容 Android 的 mksh/toybox。
+    bs='\'
+    delim="${bs}n"
+    rest="$text"
+    while [ -n "$rest" ]; do
+      case "$rest" in
+        *"${delim}"*) line="${rest%%"${delim}"*}"; rest="${rest#*"${delim}"}" ;;
+        *) line="$rest"; rest="" ;;
+      esac
+      [ -z "$line" ] && continue
+      esc=$(printf '%s' "$line" | tr -d '\r\n' | sed 's/ /%s/g')
+      input text "$esc" 2>>"$LOG"
+      log "input text: $esc"
+      input keyevent 66 2>>"$LOG"
+      log "auto-enter after: $esc"
+      sleep 0.2
+    done
   fi
 }
 

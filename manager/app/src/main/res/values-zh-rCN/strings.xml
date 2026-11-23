@@ -409,6 +409,7 @@
     <string name="listen_rule_edit">编辑规则</string>
     <string name="listen_rule_pick_app">点这里选择应用</string>
     <string name="listen_rule_text">输入内容</string>
+    <string name="listen_rule_text_hint">多条内容用 \\n 分隔，每条打完自动回车</string>
     <string name="listen_rule_input">输入「%1$s」</string>
     <string name="listen_rule_input_empty">不输入内容</string>
     <string name="listen_rule_delay">延迟（毫秒）</string>
