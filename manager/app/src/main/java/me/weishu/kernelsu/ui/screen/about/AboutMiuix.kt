@@ -50,6 +50,7 @@ import androidx.compose.ui.layout.positionInWindow
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.LayoutDirection
@@ -63,6 +64,7 @@ import me.weishu.kernelsu.ui.theme.LocalEnableBlur
 import me.weishu.kernelsu.ui.theme.isInDarkTheme
 import me.weishu.kernelsu.ui.util.BlurredBar
 import me.weishu.kernelsu.ui.util.rememberBlurBackdrop
+import top.yukonga.miuix.kmp.basic.BasicComponent
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.CardDefaults
 import top.yukonga.miuix.kmp.basic.Icon
@@ -364,6 +366,20 @@ private fun AboutContent(
                 fontSize = 14.sp,
                 textAlign = TextAlign.Center,
             )
+            Text(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 2.dp)
+                    .graphicsLayer {
+                        alpha = 1 - versionCodeProgress
+                        scaleX = 1 - (versionCodeProgress * 0.05f)
+                        scaleY = 1 - (versionCodeProgress * 0.05f)
+                    },
+                color = colorScheme.onSurfaceVariantSummary,
+                text = stringResource(R.string.about_device_code) + "  " + state.deviceCode,
+                fontSize = 12.sp,
+                textAlign = TextAlign.Center,
+            )
         }
 
         // Scrollable content
@@ -427,6 +443,11 @@ private fun AboutContent(
                             Color.Transparent,
                         ),
                     ) {
+                        BasicComponent(
+                            title = stringResource(R.string.about_device_code),
+                            summary = state.deviceCode + " · " + stringResource(R.string.about_device_code_summary),
+                            onClick = actions.onCopyDeviceCode,
+                        )
                         state.links.forEach {
                             ArrowPreference(
                                 title = it.fullText,

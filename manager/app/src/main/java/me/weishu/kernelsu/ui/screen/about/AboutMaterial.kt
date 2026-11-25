@@ -2,6 +2,7 @@ package me.weishu.kernelsu.ui.screen.about
 
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
@@ -29,6 +30,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.layout.FixedScale
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import me.weishu.kernelsu.R
@@ -93,6 +95,16 @@ fun AboutScreenMaterial(
                     Text(
                         text = state.versionName,
                         fontSize = MaterialTheme.typography.bodyMedium.fontSize
+                    )
+                    Text(
+                        modifier = Modifier
+                            .padding(top = 6.dp)
+                            .clip(RoundedCornerShape(10.dp))
+                            .clickable(onClick = actions.onCopyDeviceCode)
+                            .padding(horizontal = 12.dp, vertical = 6.dp),
+                        text = stringResource(R.string.about_device_code) + "  " + state.deviceCode,
+                        fontSize = MaterialTheme.typography.bodySmall.fontSize,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
             }

@@ -8,6 +8,7 @@ data class AboutUiState(
     val appName: String,
     val appIconRes: Int,
     val versionName: String,
+    val deviceCode: String,
     val links: List<LinkInfo>,
 )
 
@@ -15,4 +16,5 @@ data class AboutUiState(
 data class AboutScreenActions(
     val onBack: () -> Unit,
     val onOpenLink: (String) -> Unit,
+    val onCopyDeviceCode: () -> Unit,
 )

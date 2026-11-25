@@ -1,6 +1,8 @@
 package me.weishu.kernelsu;
 
 import android.app.Activity;
+import android.content.ClipData;
+import android.content.ClipboardManager;
 import android.content.Context;
 import android.content.Intent;
 import android.content.res.ColorStateList;
@@ -16,7 +18,6 @@ import android.graphics.drawable.Drawable;
 import android.graphics.drawable.GradientDrawable;
 import android.graphics.drawable.StateListDrawable;
 import android.os.Bundle;
-import android.provider.Settings;
 import android.text.InputType;
 import android.util.TypedValue;
 import android.view.Gravity;
@@ -29,6 +30,9 @@ import android.widget.FrameLayout;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.TextView;
+import android.widget.Toast;
+
+import me.weishu.kernelsu.ui.util.DeviceCode;
 
 import org.json.JSONObject;
 
@@ -37,8 +41,6 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
-import java.security.MessageDigest;
-import java.util.Locale;
 
 /**
  * 卡密验证启动页（移植自 sbsu/tools/gate/GateActivity.java）。
@@ -47,7 +49,6 @@ import java.util.Locale;
 public class GateActivity extends Activity {
 
     private static final String BASE_URL = "https://sbkey.dpdns.org";
-    private static final String SALT = "sb-manager-v1";
     private static final String PREFS = "sb_activation";
     private static final String KEY = "license_key";
     private static final String TARGET = "me.weishu.kernelsu.MainActivityKowsu";
@@ -259,6 +260,27 @@ public class GateActivity extends Activity {
             }
         });
 
+        // 底部设备码：点按复制，补卡/解绑时提供给发卡方
+        TextView device = new TextView(this);
+        final String deviceCode = DeviceCode.get(this);
+        device.setText("设备码  " + deviceCode + "  ·  点按复制");
+        device.setTextSize(TypedValue.COMPLEX_UNIT_SP, 11.5f);
+        device.setTextColor(GREY);
+        device.setGravity(Gravity.CENTER);
+        device.setPadding(dp(10), dp(8), dp(10), dp(8));
+        device.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                ClipboardManager cm = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
+                cm.setPrimaryClip(ClipData.newPlainText("device code", deviceCode));
+                Toast.makeText(GateActivity.this, "设备码已复制", Toast.LENGTH_SHORT).show();
+            }
+        });
+        LinearLayout.LayoutParams dlp = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        dlp.topMargin = dp(22);
+        root.addView(device, dlp);
+
         return root;
     }
 
@@ -319,21 +341,6 @@ public class GateActivity extends Activity {
         return c.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString(KEY, null);
     }
 
-    private static String deviceCode(Context c) {
-        try {
-            String id = Settings.Secure.getString(c.getContentResolver(), Settings.Secure.ANDROID_ID);
-            if (id == null) id = "unknown";
-            MessageDigest md = MessageDigest.getInstance("SHA-256");
-            byte[] d = md.digest((SALT + "|" + id).getBytes("UTF-8"));
-            StringBuilder hex = new StringBuilder();
-            for (int i = 0; i < 6; i++) hex.append(String.format(Locale.US, "%02X", d[i] & 0xFF));
-            String s = hex.toString();
-            return s.substring(0, 4) + "-" + s.substring(4, 8) + "-" + s.substring(8, 12);
-        } catch (Exception e) {
-            return "0000-0000-0000";
-        }
-    }
-
     private JSONObject post(String path, JSONObject body) {
         HttpURLConnection conn = null;
         try {
@@ -371,7 +378,7 @@ public class GateActivity extends Activity {
                 JSONObject body = new JSONObject();
                 try {
                     body.put("key", key);
-                    body.put("device", deviceCode(GateActivity.this));
+                    body.put("device", DeviceCode.get(GateActivity.this));
                 } catch (Exception ignored) {
                 }
                 final JSONObject resp = post("/activate", body);
@@ -409,7 +416,7 @@ public class GateActivity extends Activity {
                 JSONObject body = new JSONObject();
                 try {
                     body.put("key", key);
-                    body.put("device", deviceCode(GateActivity.this));
+                    body.put("device", DeviceCode.get(GateActivity.this));
                 } catch (Exception ignored) {
                 }
                 final JSONObject resp = post("/verify", body);
