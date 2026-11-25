@@ -3,6 +3,7 @@ package me.weishu.kernelsu;
 import android.app.Activity;
 import android.content.Context;
 import android.content.Intent;
+import android.content.res.ColorStateList;
 import android.graphics.Bitmap;
 import android.graphics.Canvas;
 import android.graphics.Color;
@@ -11,19 +12,22 @@ import android.graphics.PorterDuff;
 import android.graphics.PorterDuffXfermode;
 import android.graphics.Rect;
 import android.graphics.Typeface;
+import android.graphics.drawable.Drawable;
 import android.graphics.drawable.GradientDrawable;
+import android.graphics.drawable.StateListDrawable;
 import android.os.Bundle;
 import android.provider.Settings;
 import android.text.InputType;
 import android.util.TypedValue;
 import android.view.Gravity;
 import android.view.View;
+import android.view.inputmethod.EditorInfo;
 import android.widget.Button;
-import android.widget.CompoundButton;
+import android.widget.CheckBox;
 import android.widget.EditText;
+import android.widget.FrameLayout;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
-import android.widget.Switch;
 import android.widget.TextView;
 
 import org.json.JSONObject;
@@ -48,14 +52,24 @@ public class GateActivity extends Activity {
     private static final String KEY = "license_key";
     private static final String TARGET = "me.weishu.kernelsu.MainActivityKowsu";
 
-    private static final int INK = 0xFF1F1F1F;
-    private static final int GREY = 0xFF8A8A8F;
-    private static final int BG = 0xFFF7F7F8;
+    // 配色：冷灰渐变底 + 深藏青强调（呼应白猫图标的深色包）
+    private static final int INK = 0xFF1B1B26;
+    private static final int GREY = 0xFF8A8A96;
+    private static final int GREY2 = 0xFF6E6E7A;
+    private static final int BG_TOP = 0xFFF1F1F6;
+    private static final int BG_BOT = 0xFFE6E6EF;
+    private static final int ACCENT = 0xFF2F3247;
+    private static final int ACCENT2 = 0xFF454A66;
+    private static final int ACCENT_DARK = 0xFF23253A;
+    private static final int INPUT_BG = 0xFFF4F4F9;
+    private static final int INPUT_BORDER = 0xFFE3E3EA;
+    private static final int ERROR = 0xFFD23B3B;
 
     private EditText input;
-    private Switch remember;
+    private CheckBox remember;
     private Button submit;
     private TextView error;
+    private TextView sub;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -67,6 +81,7 @@ public class GateActivity extends Activity {
             input.setText(saved);
             remember.setChecked(true);
             error.setText("");
+            sub.setText("正在验证已保存的卡密…");
             setBusy(true);
             verifyAsync(saved);
         }
@@ -80,115 +95,151 @@ public class GateActivity extends Activity {
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
         root.setGravity(Gravity.CENTER);
-        root.setBackgroundColor(BG);
-        root.setPadding(dp(26), dp(24), dp(26), dp(24));
+        root.setBackground(new GradientDrawable(
+                GradientDrawable.Orientation.TOP_BOTTOM, new int[]{BG_TOP, BG_BOT}));
+        root.setPadding(dp(28), dp(28), dp(28), dp(28));
         root.setMinimumHeight(getResources().getDisplayMetrics().heightPixels);
 
-        // 圆形头像
+        // 圆形头像：白色圆盘 + 阴影托底，内嵌圆形裁切的应用图标
+        FrameLayout avatarWrap = new FrameLayout(this);
+        GradientDrawable plate = new GradientDrawable();
+        plate.setShape(GradientDrawable.OVAL);
+        plate.setColor(Color.WHITE);
+        avatarWrap.setBackground(plate);
+        avatarWrap.setElevation(dp(10));
+        avatarWrap.setPadding(dp(6), dp(6), dp(6), dp(6));
+
         ImageView avatar = new ImageView(this);
         try {
-            android.graphics.drawable.Drawable drawable = getPackageManager().getApplicationIcon(getPackageName());
-            int px = dp(96);
+            Drawable drawable = getPackageManager().getApplicationIcon(getPackageName());
+            int px = dp(100);
             Bitmap src = Bitmap.createBitmap(px, px, Bitmap.Config.ARGB_8888);
             Canvas iconCanvas = new Canvas(src);
             drawable.setBounds(0, 0, px, px);
             drawable.draw(iconCanvas);
             avatar.setImageBitmap(circleCrop(src));
         } catch (Exception e) {
-            avatar.setBackground(circleDrawable(INK, dp(96)));
+            avatar.setBackground(circleDrawable(INK));
         }
-        root.addView(avatar, new LinearLayout.LayoutParams(dp(96), dp(96)));
+        avatarWrap.addView(avatar, new FrameLayout.LayoutParams(dp(100), dp(100)));
+        root.addView(avatarWrap, new LinearLayout.LayoutParams(dp(112), dp(112)));
 
         // 标题
         TextView title = new TextView(this);
         title.setText("chen");
-        title.setTextSize(TypedValue.COMPLEX_UNIT_SP, 34);
+        title.setTextSize(TypedValue.COMPLEX_UNIT_SP, 36);
         title.setTextColor(INK);
-        title.setTypeface(Typeface.DEFAULT, Typeface.NORMAL);
+        title.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
+        title.setLetterSpacing(0.05f);
         LinearLayout.LayoutParams tlp = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
-        tlp.topMargin = dp(20);
+        tlp.topMargin = dp(22);
         root.addView(title, tlp);
 
         // 副标题
-        TextView sub = new TextView(this);
-        sub.setText("请输入卡密以继续使用");
-        sub.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
+        sub = new TextView(this);
+        sub.setText("输入卡密以继续使用");
+        sub.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13.5f);
         sub.setTextColor(GREY);
         LinearLayout.LayoutParams slp = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
-        slp.topMargin = dp(10);
+        slp.topMargin = dp(8);
         root.addView(sub, slp);
 
         // 白色卡片
         LinearLayout card = new LinearLayout(this);
         card.setOrientation(LinearLayout.VERTICAL);
-        card.setBackground(roundDrawable(Color.WHITE, dp(26), 0));
-        card.setElevation(dp(6));
-        card.setPadding(dp(22), dp(22), dp(22), dp(22));
+        card.setBackground(roundDrawable(Color.WHITE, dp(28), 0));
+        card.setElevation(dp(10));
+        card.setPadding(dp(24), dp(24), dp(24), dp(24));
         LinearLayout.LayoutParams clp = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
-        clp.topMargin = dp(34);
+        clp.topMargin = dp(32);
         root.addView(card, clp);
 
         TextView label = new TextView(this);
-        label.setText("卡密");
+        label.setText("卡 密");
         label.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
         label.setTextColor(GREY);
+        label.setLetterSpacing(0.12f);
         card.addView(label);
 
         input = new EditText(this);
         input.setHint("输入卡密");
-        input.setHintTextColor(0xFFBDBDC4);
+        input.setHintTextColor(0xFFB6B6C2);
         input.setSingleLine(true);
         input.setTextSize(TypedValue.COMPLEX_UNIT_SP, 15);
         input.setTextColor(INK);
         input.setTypeface(Typeface.MONOSPACE);
         input.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_CAP_CHARACTERS);
-        input.setBackground(roundDrawable(Color.WHITE, dp(14), 0xFFD8D8DE));
-        input.setPadding(dp(14), dp(13), dp(14), dp(13));
+        input.setImeOptions(EditorInfo.IME_ACTION_GO);
+        input.setBackground(inputDrawable());
+        input.setPadding(dp(16), dp(14), dp(16), dp(14));
         LinearLayout.LayoutParams ilp = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
-        ilp.topMargin = dp(8);
+        ilp.topMargin = dp(10);
         card.addView(input, ilp);
+
+        // 回车直接触发验证
+        input.setOnEditorActionListener((v, actionId, event) -> {
+            if (actionId == EditorInfo.IME_ACTION_GO) {
+                submit.performClick();
+                return true;
+            }
+            return false;
+        });
 
         error = new TextView(this);
         error.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
-        error.setTextColor(0xFFD33A3A);
+        error.setTextColor(ERROR);
+        error.setMinHeight(dp(18));
         LinearLayout.LayoutParams elp = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
-        elp.topMargin = dp(8);
+        elp.topMargin = dp(6);
         card.addView(error, elp);
 
+        // 记住此卡密
         LinearLayout row = new LinearLayout(this);
         row.setOrientation(LinearLayout.HORIZONTAL);
         row.setGravity(Gravity.CENTER_VERTICAL);
         LinearLayout.LayoutParams rlp = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
-        rlp.topMargin = dp(14);
+        rlp.topMargin = dp(10);
         card.addView(row, rlp);
+
+        remember = new CheckBox(this);
+        remember.setChecked(true);
+        remember.setButtonTintList(new ColorStateList(
+                new int[][]{
+                        new int[]{android.R.attr.state_checked},
+                        new int[]{}
+                },
+                new int[]{ACCENT, 0xFFB6B6C2}));
+        remember.setMinimumWidth(0);
+        remember.setMinWidth(0);
+        row.addView(remember);
 
         TextView remLabel = new TextView(this);
         remLabel.setText("记住此卡密");
         remLabel.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
-        remLabel.setTextColor(GREY);
-        row.addView(remLabel, new LinearLayout.LayoutParams(0,
-                LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
-
-        remember = new Switch(this);
-        remember.setChecked(true);
-        row.addView(remember);
+        remLabel.setTextColor(GREY2);
+        LinearLayout.LayoutParams remLp = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        remLp.leftMargin = dp(2);
+        row.addView(remLabel, remLp);
 
         submit = new Button(this);
         submit.setText("验证");
         submit.setAllCaps(false);
         submit.setTextSize(TypedValue.COMPLEX_UNIT_SP, 16);
         submit.setTextColor(Color.WHITE);
-        submit.setBackground(roundDrawable(INK, dp(16), 0));
+        submit.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
+        submit.setLetterSpacing(0.12f);
+        submit.setBackground(buttonDrawable());
         submit.setStateListAnimator(null);
         LinearLayout.LayoutParams blp = new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, dp(54));
-        blp.topMargin = dp(16);
+                LinearLayout.LayoutParams.MATCH_PARENT, dp(56));
+        blp.topMargin = dp(18);
         card.addView(submit, blp);
 
         submit.setOnClickListener(new View.OnClickListener() {
@@ -202,18 +253,38 @@ public class GateActivity extends Activity {
                     return;
                 }
                 error.setText("");
+                sub.setText("正在验证…");
                 setBusy(true);
                 activateAsync(key);
             }
         });
 
-        remember.setOnCheckedChangeListener(new CompoundButton.OnCheckedChangeListener() {
-            @Override
-            public void onCheckedChanged(CompoundButton b, boolean checked) {
-            }
-        });
-
         return root;
+    }
+
+    /** 输入框：常态浅灰、聚焦白色 + 藏青描边 */
+    private Drawable inputDrawable() {
+        GradientDrawable normal = roundDrawable(INPUT_BG, dp(15), INPUT_BORDER);
+        GradientDrawable focused = roundDrawable(Color.WHITE, dp(15), 0);
+        focused.setStroke(dp(2), ACCENT);
+        StateListDrawable sld = new StateListDrawable();
+        sld.addState(new int[]{android.R.attr.state_focused}, focused);
+        sld.addState(new int[]{}, normal);
+        return sld;
+    }
+
+    /** 按钮：藏青渐变，按下加深 */
+    private Drawable buttonDrawable() {
+        GradientDrawable normal = new GradientDrawable(
+                GradientDrawable.Orientation.LEFT_RIGHT, new int[]{ACCENT, ACCENT2});
+        normal.setCornerRadius(dp(18));
+        GradientDrawable pressed = new GradientDrawable(
+                GradientDrawable.Orientation.LEFT_RIGHT, new int[]{ACCENT_DARK, ACCENT});
+        pressed.setCornerRadius(dp(18));
+        StateListDrawable sld = new StateListDrawable();
+        sld.addState(new int[]{android.R.attr.state_pressed}, pressed);
+        sld.addState(new int[]{}, normal);
+        return sld;
     }
 
     private GradientDrawable roundDrawable(int color, int radius, int strokeColor) {
@@ -226,7 +297,7 @@ public class GateActivity extends Activity {
         return d;
     }
 
-    private GradientDrawable circleDrawable(int color, int size) {
+    private GradientDrawable circleDrawable(int color) {
         GradientDrawable d = new GradientDrawable();
         d.setShape(GradientDrawable.OVAL);
         d.setColor(color);
@@ -308,6 +379,7 @@ public class GateActivity extends Activity {
                     @Override
                     public void run() {
                         setBusy(false);
+                        sub.setText("输入卡密以继续使用");
                         if (resp == null) {
                             error.setText("网络连接失败，请检查网络");
                             return;
@@ -316,6 +388,9 @@ public class GateActivity extends Activity {
                             if (remember.isChecked()) {
                                 getSharedPreferences(PREFS, Context.MODE_PRIVATE)
                                         .edit().putString(KEY, key).apply();
+                            } else {
+                                getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+                                        .edit().remove(KEY).apply();
                             }
                             openManager();
                         } else {
@@ -343,12 +418,14 @@ public class GateActivity extends Activity {
                     public void run() {
                         setBusy(false);
                         if (resp == null) {
+                            sub.setText("输入卡密以继续使用");
                             error.setText("网络连接失败，请检查网络");
                             return;
                         }
                         if (resp.optBoolean("ok")) {
                             openManager();
                         } else {
+                            sub.setText("输入卡密以继续使用");
                             error.setText("卡密已失效，请重新输入");
                         }
                     }
@@ -359,7 +436,8 @@ public class GateActivity extends Activity {
 
     private void setBusy(boolean busy) {
         submit.setEnabled(!busy);
-        submit.setAlpha(busy ? 0.6f : 1f);
+        submit.setAlpha(busy ? 0.55f : 1f);
+        submit.setText(busy ? "验证中…" : "验证");
     }
 
     private void openManager() {
