@@ -54,9 +54,10 @@ jobs:
 
     - name: Fetch and checkout xxKSU
       run: |
-        git remote add xx https://github.com/backslashxx/KernelSU
-        git fetch xx master
-        git checkout xx/master
+        # backslashxx/KernelSU 上游已消失(404)，2026-11-25 起改用本仓库
+        # xx-upstream 镜像分支（源自 Najip/xxKSU 备份，含 backslashxx 原始提交）
+        git fetch origin xx-upstream
+        git checkout -B xx-src origin/xx-upstream
 
         curl -sSL https://raw.githubusercontent.com/KOWX712/files/main/KowSU/xxksu.patch | patch -p1
 
