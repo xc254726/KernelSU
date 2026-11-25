@@ -13,7 +13,7 @@ import androidx.compose.ui.unit.dp
 
 /**
  * 卡片外观配置（从 BakaSU 移植的精简桩）。
- * 农民主工程的视觉体系不同，这里保留字段接口让移植界面编译通过，
+ * chen主工程的视觉体系不同，这里保留字段接口让移植界面编译通过，
  * blur 相关能力在 [blurEffect] / [renderBackgroundBlur] 中恒为 no-op。
  */
 @Stable

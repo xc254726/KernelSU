@@ -101,7 +101,7 @@ public class GateActivity extends Activity {
 
         // 标题
         TextView title = new TextView(this);
-        title.setText("农民");
+        title.setText("chen");
         title.setTextSize(TypedValue.COMPLEX_UNIT_SP, 34);
         title.setTextColor(INK);
         title.setTypeface(Typeface.DEFAULT, Typeface.NORMAL);

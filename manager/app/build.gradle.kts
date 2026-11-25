@@ -183,7 +183,7 @@ androidComponents {
 
 base {
     archivesName.set(
-        "Nongmin_${managerVersionName}_${managerVersionCode}"
+        "Chen_${managerVersionName}_${managerVersionCode}"
     )
 }
 
