@@ -123,7 +123,11 @@ fun NavigationRailMaterial(
                         badge = badgeFor(index, navigationBadge),
                     )
                 },
-                label = { Text(stringResource(label)) }
+                label = if (BottomBarDestination.entries[index].iconOnly) {
+                    null
+                } else {
+                    { Text(stringResource(label)) }
+                }
             )
         }
     }

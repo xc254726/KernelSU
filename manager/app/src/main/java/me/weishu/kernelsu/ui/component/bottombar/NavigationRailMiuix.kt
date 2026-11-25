@@ -54,7 +54,7 @@ fun NavigationRailMiuix(
                     mainState.animateToPage(index)
                 },
                 icon = icon,
-                label = label,
+                label = if (BottomBarDestination.entries[index].iconOnly) "" else label,
                 badge = navigationBadgeFor(index, navigationBadge),
             )
         }

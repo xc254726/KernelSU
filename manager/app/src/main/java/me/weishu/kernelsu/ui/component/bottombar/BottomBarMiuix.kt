@@ -14,6 +14,7 @@ import androidx.compose.material.icons.rounded.Security
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material.icons.rounded.Terminal
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -33,7 +34,9 @@ import me.weishu.kernelsu.ui.util.BlurredBar
 import top.yukonga.miuix.kmp.basic.Badge
 import top.yukonga.miuix.kmp.basic.BadgedBox
 import top.yukonga.miuix.kmp.basic.Icon
+import top.yukonga.miuix.kmp.basic.LocalNavigationBarDisplayMode
 import top.yukonga.miuix.kmp.basic.NavigationBar
+import top.yukonga.miuix.kmp.basic.NavigationBarDisplayMode
 import top.yukonga.miuix.kmp.basic.NavigationBarItem
 import top.yukonga.miuix.kmp.basic.NavigationItem
 import top.yukonga.miuix.kmp.basic.Text
@@ -68,16 +71,25 @@ fun BottomBarMiuix(
                 color = if (blurBackdrop != null) Color.Transparent else MiuixTheme.colorScheme.surface,
                 content = {
                     items.forEachIndexed { index, item ->
-                        NavigationBarItem(
-                            modifier = Modifier.weight(1f),
-                            icon = item.icon,
-                            label = item.label,
-                            selected = mainState.selectedPage == index,
-                            onClick = {
-                                mainState.animateToPage(index)
-                            },
-                            badge = navigationBadgeFor(index, navigationBadge),
-                        )
+                        val navItem: @Composable () -> Unit = {
+                            NavigationBarItem(
+                                modifier = Modifier.weight(1f),
+                                icon = item.icon,
+                                label = item.label,
+                                selected = mainState.selectedPage == index,
+                                onClick = {
+                                    mainState.animateToPage(index)
+                                },
+                                badge = navigationBadgeFor(index, navigationBadge),
+                            )
+                        }
+                        if (BottomBarDestination.entries[index].iconOnly) {
+                            CompositionLocalProvider(LocalNavigationBarDisplayMode provides NavigationBarDisplayMode.IconOnly) {
+                                navItem()
+                            }
+                        } else {
+                            navItem()
+                        }
                     }
                 }
             )
@@ -119,14 +131,16 @@ fun BottomBarMiuix(
                     } else {
                         icon()
                     }
-                    Text(
-                        text = item.label,
-                        fontSize = 11.sp,
-                        lineHeight = 14.sp,
-                        maxLines = 1,
-                        softWrap = false,
-                        overflow = TextOverflow.Visible
-                    )
+                    if (!BottomBarDestination.entries[index].iconOnly) {
+                        Text(
+                            text = item.label,
+                            fontSize = 11.sp,
+                            lineHeight = 14.sp,
+                            maxLines = 1,
+                            softWrap = false,
+                            overflow = TextOverflow.Visible
+                        )
+                    }
                 }
             }
         }
@@ -136,11 +150,12 @@ fun BottomBarMiuix(
 enum class BottomBarDestination(
     @get:StringRes val label: Int,
     val icon: ImageVector,
+    val iconOnly: Boolean = false,
 ) {
     Home(R.string.home, Icons.Rounded.Cottage),
     SuperUser(R.string.superuser, Icons.Rounded.Security),
     Module(R.string.module, Icons.Rounded.Extension),
-    Terminal(R.string.hidden_terminal, Icons.Rounded.Terminal),
+    Terminal(R.string.hidden_terminal, Icons.Rounded.Terminal, iconOnly = true),
     Setting(R.string.settings, Icons.Rounded.Settings)
 }
 

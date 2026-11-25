@@ -69,12 +69,16 @@ fun BottomBarMaterial(navigationBadge: NavigationBadgeState) {
                         badge = badgeFor(index, navigationBadge),
                     )
                 },
-                label = {
-                    Text(
-                        stringResource(label),
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
+                label = if (BottomBarDestination.entries[index].iconOnly) {
+                    null
+                } else {
+                    {
+                        Text(
+                            stringResource(label),
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
                 }
             )
         }

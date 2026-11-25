@@ -21,7 +21,6 @@ import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.ContactPage
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Description
-import androidx.compose.material.icons.filled.Keyboard
 import androidx.compose.material.icons.filled.DeveloperMode
 import androidx.compose.material.icons.filled.DisplaySettings
 import androidx.compose.material.icons.filled.FlashOn
@@ -146,20 +145,6 @@ fun SettingPagerMaterial(
                             headlineContent = { Text(stringResource(id = R.string.settings_theme)) },
                             supportingContent = { Text(stringResource(id = R.string.settings_theme_summary)) },
                             leadingContent = { Icon(Icons.Filled.Palette, stringResource(id = R.string.settings_theme)) },
-                            trailingContent = {
-                                Icon(
-                                    Icons.AutoMirrored.Filled.KeyboardArrowRight,
-                                    null
-                                )
-                            }
-                        )
-                    }
-                    add {
-                        SegmentedListItem(
-                            onClick = actions.onOpenListen,
-                            headlineContent = { Text(stringResource(id = R.string.listen_title)) },
-                            supportingContent = { Text(stringResource(id = R.string.listen_settings_summary)) },
-                            leadingContent = { Icon(Icons.Filled.Keyboard, stringResource(id = R.string.listen_title)) },
                             trailingContent = {
                                 Icon(
                                     Icons.AutoMirrored.Filled.KeyboardArrowRight,
