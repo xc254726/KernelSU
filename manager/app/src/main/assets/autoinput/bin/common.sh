@@ -132,17 +132,34 @@ get_script_path() {
     printf '%s' "$sp"
 }
 
+# 按 shebang 选解释器：脚本声明 bash 且系统真有 bash 就用 bash，否则退回 sh
+# （很多脚本写 #!/bin/bash，Android 默认没有 bash，用 sh 跑会在某些语法/内建上出错）
+pick_shell() {
+    local sp="$1" first
+    first=$(head -n 1 "$sp" 2>/dev/null | tr -d '\r')
+    case "$first" in
+        *bash*)
+            if command -v bash >/dev/null 2>&1; then
+                command -v bash
+                return 0
+            fi
+            ;;
+    esac
+    printf 'sh'
+}
+
 # 执行用户指定的 sh 脚本（同步：等脚本整段跑完才返回）
 run_user_script() {
-    local sp
+    local sp shbin
     sp=$(get_script_path)
     if [ -z "$sp" ]; then
         log "no script path configured, skip"
         return 0
     fi
     if [ -f "$sp" ]; then
-        log "run script: $sp"
-        sh "$sp" >> "$LOG" 2>&1
+        shbin=$(pick_shell "$sp")
+        log "run script: $sp (shell=$shbin)"
+        "$shbin" "$sp" </dev/null >> "$LOG" 2>&1
         log "script exit code: $?"
     else
         log "script not found: $sp"
@@ -153,8 +170,9 @@ run_user_script() {
 # 脚本里的命令跑完后进程不退出，等预输入全部完成后由 release_user_script 放行
 SCRIPT_HOLD_PID=""
 run_user_script_hold() {
-    local sp
+    local sp shbin
     sp=$(get_script_path)
+    shbin=$(pick_shell "$sp")
     SCRIPT_HOLD_PID=""
 
     if [ -z "$sp" ]; then
@@ -167,11 +185,11 @@ run_user_script_hold() {
     fi
 
     rm -f "$CONF/.script_release" "$CONF/.script_child" "$CONF/.script_hold_pid" 2>/dev/null
-    log "run script（执行完不退出，等输入完成）: $sp"
+    log "run script（执行完不退出，等输入完成）: $sp (shell=$shbin)"
 
     (
         holder="${DAEMON_PID:-0}"
-        sh "$sp" >> "$LOG" 2>&1 &
+        "$shbin" "$sp" </dev/null >> "$LOG" 2>&1 &
         child=$!
         echo "$child" > "$CONF/.script_child" 2>/dev/null
         wait "$child"
@@ -423,7 +441,7 @@ SCRIPT_FEED_PID=""
 # 进入应用后等待 delay 秒，执行脚本，并把预输入内容逐行写入脚本 stdin（每行=一次回车）
 # 脚本在后台运行，喂完输入即结束，不做任何屏幕模拟输入
 run_script_feed() {
-    local sp delay speed total n=0 line
+    local sp delay speed total n=0 line shbin
 
     sp=$(get_script_path)
     if [ -z "$sp" ]; then
@@ -456,12 +474,21 @@ run_script_feed() {
     fi
     echo "===== $(date '+%m-%d %H:%M:%S') 执行脚本 $sp =====" >> "$slog" 2>/dev/null
 
+    # 执行前记一行体检摘要：脚本自身出问题（换行/解释器/大小异常）时一眼能看出来
+    shbin=$(pick_shell "$sp")
+    {
+        echo "[diag] shell=$shbin size=$(wc -c < "$sp" 2>/dev/null | tr -d ' ')" \
+             "lines=$(wc -l < "$sp" 2>/dev/null | tr -d ' ')" \
+             "crlf=$(awk '/\r$/{n++} END{print n+0}' "$sp" 2>/dev/null)" \
+             "gzip=$(grep -c -E 'gzip|gunzip|zcat' "$sp" 2>/dev/null)"
+    } >> "$slog" 2>/dev/null
+
     if [ "$delay" -gt 0 ]; then
         log "-- 等待 ${delay}s 后执行脚本"
         sleep "$delay"
     fi
 
-    log "-- 执行脚本，开始喂入输入"
+    log "-- 执行脚本，开始喂入输入（shell=$shbin）"
     {
         if [ -f "$CONF/input.txt" ]; then
             while IFS= read -r line || [ -n "$line" ]; do
@@ -476,7 +503,7 @@ run_script_feed() {
             done < "$CONF/input.txt"
         fi
         log "stdin: 输入完成，共 $n 条"
-    } | sh "$sp" >> "$slog" 2>&1 &
+    } | "$shbin" "$sp" >> "$slog" 2>&1 &
 
     SCRIPT_FEED_PID=$!
     log "script feed pid=$SCRIPT_FEED_PID（脚本在后台运行，输出见 script.log）"

@@ -479,6 +479,8 @@
     <string name="autoinput_mode_script_tip_desc">Lines go to the script stdin only, nothing is typed on screen. Switch to on-screen typing to fill text fields.</string>
     <string name="autoinput_diag_title">Self-check</string>
     <string name="autoinput_diag_summary">Check input command and foreground detection</string>
+    <string name="autoinput_probe_title">Script check</string>
+    <string name="autoinput_probe_summary">Inspect the script itself: line endings, interpreter, decompress code</string>
     <string name="autoinput_remove_title">Remove monitor</string>
     <string name="autoinput_remove_summary">Stop the daemon and delete scripts and settings</string>
     <string name="autoinput_remove_confirm">This stops the daemon and deletes the boot script and all settings. Continue?</string>

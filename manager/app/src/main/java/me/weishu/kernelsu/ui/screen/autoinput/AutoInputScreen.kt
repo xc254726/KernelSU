@@ -35,6 +35,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.twotone.Add
 import androidx.compose.material.icons.twotone.Delete
 import androidx.compose.material3.AlertDialog
@@ -119,7 +120,7 @@ import me.weishu.kernelsu.ui.util.showReplacingSnackbar
 private const val CONF_DIR = "/data/adb/auto_input"
 private const val BIN_DIR = "$CONF_DIR/bin"
 private const val BOOT_SCRIPT = "/data/adb/service.d/chen-auto-input.sh"
-private const val BUNDLED_VERSION = "7"
+private const val BUNDLED_VERSION = "8"
 
 private val SCRIPT_NAMES = listOf(
     "common.sh",
@@ -131,6 +132,7 @@ private val SCRIPT_NAMES = listOf(
     "test_input.sh",
     "probe.sh",
     "flow_test.sh",
+    "script_probe.sh",
 )
 
 private const val STATUS_SCRIPT = """
@@ -388,10 +390,12 @@ fun AutoInputScreen() {
     var showEnterPicker by remember { mutableStateOf(false) }
     var showLog by remember { mutableStateOf(false) }
     var showDiag by remember { mutableStateOf(false) }
+    var showProbe by remember { mutableStateOf(false) }
     var numberKind by remember { mutableStateOf<NumberKind?>(null) }
     var logText by remember { mutableStateOf("") }
     var lastRun by remember { mutableStateOf("") }
     var diagText by remember { mutableStateOf("") }
+    var probeText by remember { mutableStateOf("") }
 
     val msgSaved = stringResource(R.string.autoinput_saved)
     val msgStarted = stringResource(R.string.autoinput_started)
@@ -865,6 +869,22 @@ fun AutoInputScreen() {
                         )
                     }
                     item {
+                        SettingsJumpPageWidget(
+                            icon = Icons.Filled.Search,
+                            title = stringResource(R.string.autoinput_probe_title),
+                            description = stringResource(R.string.autoinput_probe_summary),
+                            onClick = {
+                                scope.launch {
+                                    val text = withContext(Dispatchers.IO) {
+                                        runRoot(ksuCli, "sh $BIN_DIR/script_probe.sh 2>&1")
+                                    }
+                                    probeText = text.ifBlank { "no output" }
+                                    showProbe = true
+                                }
+                            },
+                        )
+                    }
+                    item {
                         SettingsBaseWidget(
                             icon = Icons.Filled.Delete,
                             title = stringResource(R.string.autoinput_remove_title),
@@ -1070,6 +1090,14 @@ fun AutoInputScreen() {
             title = stringResource(R.string.autoinput_diag_title),
             text = diagText,
             onDismiss = { showDiag = false },
+        )
+    }
+
+    if (showProbe) {
+        TextDialog(
+            title = stringResource(R.string.autoinput_probe_title),
+            text = probeText,
+            onDismiss = { showProbe = false },
         )
     }
 }

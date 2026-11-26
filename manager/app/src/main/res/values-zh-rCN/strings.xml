@@ -471,6 +471,8 @@
     <string name="autoinput_mode_script_tip_desc">内容只会写进脚本的标准输入，不会打到屏幕上。要在应用里自动填字，请把输入方式改成屏幕输入</string>
     <string name="autoinput_diag_title">自检</string>
     <string name="autoinput_diag_summary">检查注入命令与前台识别是否正常</string>
+    <string name="autoinput_probe_title">脚本体检</string>
+    <string name="autoinput_probe_summary">检查脚本本身：换行、解释器、解压相关代码</string>
     <string name="autoinput_remove_title">移除监听</string>
     <string name="autoinput_remove_summary">停止守护进程并删除脚本与配置</string>
     <string name="autoinput_remove_confirm">将停止守护进程、删除开机脚本与全部配置。确定移除？</string>
