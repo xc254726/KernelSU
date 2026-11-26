@@ -17,9 +17,6 @@ fi
 echo "$$" > "$PIDFILE"
 log "watchdog started pid=$$"
 
-start_watcher "$MODDIR"
-log "watchdog: watcher ensured"
-
 while true; do
     sh "$BIN_DIR/daemon.sh"
     RC=$?

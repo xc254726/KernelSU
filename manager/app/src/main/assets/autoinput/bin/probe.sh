@@ -1,12 +1,13 @@
 #!/system/bin/sh
-# Auto Input - 现场探针：给页面用的轻量状态（前台应用 / 输入框焦点 / 失败原因）
+# Auto Input - 现场探针：给页面用的只读状态（前台应用 / 输入框焦点 / 读取失败原因）
+# 只做查询，不参与任何触发逻辑，daemon.sh 的行为完全不受这里影响。
 BIN_DIR="${0%/*}"
 . "$BIN_DIR/common.sh"
 
-FG=$(current_fg)
+FG=$(get_foreground_pkg)
 echo "FG=$FG"
 
-if input_focused; then
+if dumpsys input_method 2>/dev/null | grep -m1 'mInputShown=' | grep -q 'mInputShown=true'; then
     echo "FOCUS=1"
 else
     echo "FOCUS=0"

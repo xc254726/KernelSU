@@ -119,7 +119,7 @@ import me.weishu.kernelsu.ui.util.showReplacingSnackbar
 private const val CONF_DIR = "/data/adb/auto_input"
 private const val BIN_DIR = "$CONF_DIR/bin"
 private const val BOOT_SCRIPT = "/data/adb/service.d/chen-auto-input.sh"
-private const val BUNDLED_VERSION = "5"
+private const val BUNDLED_VERSION = "6"
 
 private val SCRIPT_NAMES = listOf(
     "common.sh",
@@ -130,7 +130,6 @@ private val SCRIPT_NAMES = listOf(
     "diag.sh",
     "test_input.sh",
     "probe.sh",
-    "watcher.sh",
 )
 
 private const val STATUS_SCRIPT = """
@@ -173,11 +172,10 @@ sp=${'$'}(get_script_path)
 if [ -z "${'$'}sp" ]; then echo "NO_SCRIPT"; exit 1; fi
 if [ ! -f "${'$'}sp" ]; then echo "NOT_FOUND:${'$'}sp"; exit 1; fi
 log "手动执行脚本：${'$'}sp"
-runner=${'$'}(script_runner "${'$'}sp")
 if command -v setsid >/dev/null 2>&1; then
-    setsid sh "${'$'}runner" >> "${'$'}LOG" 2>&1 &
+    setsid sh "${'$'}sp" >> "${'$'}LOG" 2>&1 &
 else
-    nohup sh "${'$'}runner" >> "${'$'}LOG" 2>&1 &
+    nohup sh "${'$'}sp" >> "${'$'}LOG" 2>&1 &
 fi
 echo "STARTED:${'$'}!"
 """
@@ -193,7 +191,6 @@ private const val REMOVE_SCRIPT = """
 CONF=/data/adb/auto_input
 for p in ${'$'}(pgrep -f 'auto_input/bin/[s]upervisor\.sh' 2>/dev/null); do kill -9 ${'$'}p 2>/dev/null; done
 for p in ${'$'}(pgrep -f 'auto_input/bin/[d]aemon\.sh' 2>/dev/null); do kill -9 ${'$'}p 2>/dev/null; done
-for p in ${'$'}(pgrep -f 'auto_input/bin/[w]atcher\.sh' 2>/dev/null); do kill -9 ${'$'}p 2>/dev/null; done
 hp=${'$'}(cat ${'$'}CONF/.script_hold_pid 2>/dev/null)
 [ -n "${'$'}hp" ] && kill -9 ${'$'}hp 2>/dev/null
 cp=${'$'}(cat ${'$'}CONF/.script_child 2>/dev/null)
@@ -350,8 +347,6 @@ private fun parseConfig(raw: String): AutoInputConfig {
 
     val scriptPath = text("SP").trim()
     val rawMode = str("mode").ifEmpty { "screen" }
-    // 选了脚本模式又没配脚本，等于什么都不做：界面上按实际行为显示为屏幕输入
-    val effectiveMode = if (rawMode != "screen" && scriptPath.isEmpty()) "screen" else rawMode
 
     return AutoInputConfig(
         pkgs = text("PKG").lineSequence().map { it.trim() }.filter { it.isNotEmpty() }.toList(),
@@ -360,7 +355,7 @@ private fun parseConfig(raw: String): AutoInputConfig {
         delaySec = num("delay", 5),
         speedSec = num("speed", 3),
         minInterval = num("interval", 8),
-        mode = effectiveMode,
+        mode = rawMode,
         keepScript = true,
     )
 }
@@ -439,17 +434,19 @@ fun AutoInputScreen() {
             runRoot(ksuCli, "cat $CONF_DIR/.bundled_version 2>/dev/null")
         }.trim()
         val bootOk = withContext(Dispatchers.IO) { runRoot(ksuCli, STATUS_SCRIPT) }.contains("BOOT=1")
+        var upgraded = false
         if (version != BUNDLED_VERSION || !bootOk) {
             busy = true
             withContext(Dispatchers.IO) { installScripts(context, ksuCli) }
             busy = false
+            upgraded = true
         }
         refresh()
         pmApps = withContext(Dispatchers.IO) { loadPmApps(context) }
-        // 开启状态下确保守护进程活着
-        if (status.installed && status.enabled && !status.daemonRunning) {
+        // 刚覆盖过脚本时必须重启一次：老的守护进程还在内存里跑旧逻辑
+        if (upgraded || (status.installed && status.enabled && !status.daemonRunning)) {
             withContext(Dispatchers.IO) { runRoot(ksuCli, "sh $BIN_DIR/restart.sh >/dev/null 2>&1") }
-            delay(600)
+            delay(1200)
             refresh()
         }
         while (true) {

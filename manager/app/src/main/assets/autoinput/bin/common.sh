@@ -47,121 +47,25 @@ is_valid_pkg() {
     echo "$1" | grep -qE '^[A-Za-z][A-Za-z0-9_]*(\.[A-Za-z0-9_]+)+$'
 }
 
-# 从 dumpsys 的一行里抠包名
-# 兼容 ActivityRecord{1a2b u0 com.a/.B t7} / Window{9c8d u0 com.a/com.a.B}
-extract_pkg() {
-    printf '%s' "$1" | sed -nE \
-        's/.*[[:space:]]u[0-9]+[[:space:]]+([A-Za-z][A-Za-z0-9_.]*)\/[^ ]*.*/\1/p' \
-        | head -n 1
-}
-
-# dumpsys 包一层超时，避免系统卡住时把守护进程一起拖死
-sysdump() {
-    if command -v timeout >/dev/null 2>&1; then
-        timeout 8 "$@" 2>/dev/null
-    else
-        "$@" 2>/dev/null
-    fi
-}
-
 # 获取当前前台应用包名
-# 不同 ROM 的 dumpsys 输出差异很大，这里逐级兜底，任何一级拿到合法包名就返回
-# 注意：秒级轮询，同一份 dumpsys 输出只取一次，避免重复开销
 get_foreground_pkg() {
-    local pkg="" line dump win
+    local pkg=""
 
-    dump=$(sysdump dumpsys activity activities)
+    pkg=$(dumpsys activity activities 2>/dev/null \
+        | grep -m1 'topResumedActivity' \
+        | sed -E 's/.*u[0-9]+[[:space:]]+([A-Za-z0-9_.]+)\/[^ ]*.*/\1/')
 
-    # 1) 顶层 resumed activity
-    line=$(printf '%s' "$dump" | grep -m1 'topResumedActivity=')
-    pkg=$(extract_pkg "$line")
-
-    # 2) 同一份输出里的 mResumedActivity
     if ! is_valid_pkg "$pkg"; then
-        line=$(printf '%s' "$dump" | grep -m1 'mResumedActivity:')
-        pkg=$(extract_pkg "$line")
+        pkg=$(dumpsys window 2>/dev/null \
+            | grep -m1 'mCurrentFocus' \
+            | sed -E 's/.*u[0-9]+[[:space:]]+([A-Za-z0-9_.]+)\/[^ }]*.*/\1/')
     fi
 
-    # 3) 焦点窗口 / 焦点应用（同一次 dumpsys window）
     if ! is_valid_pkg "$pkg"; then
-        win=$(sysdump dumpsys window)
-        line=$(printf '%s' "$win" | grep -m1 'mCurrentFocus=')
-        pkg=$(extract_pkg "$line")
-        if ! is_valid_pkg "$pkg"; then
-            line=$(printf '%s' "$win" | grep -m1 'mFocusedApp=')
-            pkg=$(extract_pkg "$line")
-        fi
+        pkg=""
     fi
 
-    # 4) 最顶层 activity（老 ROM / 精简 dumpsys）
-    if ! is_valid_pkg "$pkg"; then
-        line=$(sysdump dumpsys activity top | grep -m1 'ACTIVITY ')
-        pkg=$(printf '%s' "$line" \
-            | sed -nE 's/^[[:space:]]*ACTIVITY[[:space:]]+([A-Za-z][A-Za-z0-9_.]*)\/.*/\1/p' \
-            | head -n 1)
-    fi
-
-    is_valid_pkg "$pkg" || pkg=""
     printf '%s' "$pkg"
-}
-
-# 当前是否有输入框获得焦点（没有焦点时 input text 不会落字）
-input_focused() {
-    local s
-    s=$(sysdump dumpsys input_method | grep -m1 'mInputShown=')
-    case "$s" in
-        *mInputShown=true*) return 0 ;;
-        *) return 1 ;;
-    esac
-}
-
-# 事件文件：watcher.sh 把 logcat 里的 resume 事件写到这里（格式 时间戳|包名）
-# 有些 ROM / SELinux 下 dumpsys 拿不到前台包名，这里作为一个独立来源兜底
-get_event_pkg() {
-    local line p ts now
-    [ -f "$CONF/.fg_last" ] || return 0
-    line=$(cat "$CONF/.fg_last" 2>/dev/null | tr -d '\r\n')
-    [ -z "$line" ] && return 0
-    ts=${line%%|*}
-    p=${line#*|}
-    now=$(date +%s 2>/dev/null)
-    [ -z "$now" ] && now=0
-    # 超过 6 小时没更新的事件视为失效，避免重启后一直沿用旧值
-    if [ "$now" -gt 0 ] && [ "$ts" -gt 0 ] && [ $((now - ts)) -gt 21600 ]; then
-        return 0
-    fi
-    is_valid_pkg "$p" || return 0
-    printf '%s' "$p"
-}
-
-# 当前前台应用
-# 事件监听在跑时优先用事件（快、开销小，也不受 SELinux 限制）；
-# 事件拿不到再回退到 dumpsys 快照
-current_fg() {
-    local p
-    if pid_matches "$(read_pid "$CONF/run/watcher.pid")" watcher.sh; then
-        p=$(get_event_pkg)
-        if [ -n "$p" ]; then
-            printf '%s' "$p"
-            return 0
-        fi
-    fi
-    get_foreground_pkg
-}
-
-# 拉起事件监听进程（单例）
-start_watcher() {
-    local moddir="${1:-/data/adb/auto_input}"
-    mkdir -p "$moddir/run" 2>/dev/null
-    if pid_matches "$(read_pid "$moddir/run/watcher.pid")" watcher.sh; then
-        return 0
-    fi
-    rm -f "$moddir/run/watcher.pid" 2>/dev/null
-    if command -v setsid >/dev/null 2>&1; then
-        setsid sh "$moddir/bin/watcher.sh" </dev/null >/dev/null 2>&1 &
-    else
-        nohup sh "$moddir/bin/watcher.sh" </dev/null >/dev/null 2>&1 &
-    fi
 }
 
 # 判断包名是否在监听列表中
@@ -208,33 +112,17 @@ get_script_path() {
     printf '%s' "$sp"
 }
 
-# 返回一个可以直接被 sh 执行的脚本路径
-# 电脑上编辑过的脚本常带 CRLF，直接 sh 会报 "$'\r': command not found"，这里先转成 LF 副本
-script_runner() {
-    local sp="$1" runner="$CONF/.run_script.sh"
-    if grep -q "$(printf '\r')" "$sp" 2>/dev/null; then
-        if tr -d '\r' < "$sp" > "$runner" 2>/dev/null && [ -s "$runner" ]; then
-            chmod 700 "$runner" 2>/dev/null
-            log "检测到 CRLF 换行，已转换为 LF 副本执行"
-            printf '%s' "$runner"
-            return 0
-        fi
-    fi
-    printf '%s' "$sp"
-}
-
 # 执行用户指定的 sh 脚本（同步：等脚本整段跑完才返回）
 run_user_script() {
-    local sp runner
+    local sp
     sp=$(get_script_path)
     if [ -z "$sp" ]; then
         log "no script path configured, skip"
         return 0
     fi
     if [ -f "$sp" ]; then
-        runner=$(script_runner "$sp")
         log "run script: $sp"
-        sh "$runner" >> "$LOG" 2>&1
+        sh "$sp" >> "$LOG" 2>&1
         log "script exit code: $?"
     else
         log "script not found: $sp"
@@ -245,7 +133,7 @@ run_user_script() {
 # 脚本里的命令跑完后进程不退出，等预输入全部完成后由 release_user_script 放行
 SCRIPT_HOLD_PID=""
 run_user_script_hold() {
-    local sp runner
+    local sp
     sp=$(get_script_path)
     SCRIPT_HOLD_PID=""
 
@@ -261,11 +149,9 @@ run_user_script_hold() {
     rm -f "$CONF/.script_release" "$CONF/.script_child" "$CONF/.script_hold_pid" 2>/dev/null
     log "run script（执行完不退出，等输入完成）: $sp"
 
-    runner=$(script_runner "$sp")
-
     (
         holder="${DAEMON_PID:-0}"
-        sh "$runner" >> "$LOG" 2>&1 &
+        sh "$sp" >> "$LOG" 2>&1 &
         child=$!
         echo "$child" > "$CONF/.script_child" 2>/dev/null
         wait "$child"
@@ -375,7 +261,7 @@ has_adbkeyboard() {
 
 # 发送单行文本：优先 input text，失败则用 ADBKeyboard 广播
 send_line() {
-    local text="$1" idx="$2" bin rc out b64 ascii
+    local text="$1" idx="$2" bin rc out b64
 
     bin=$(resolve_input)
     if [ -z "$bin" ]; then
@@ -383,26 +269,14 @@ send_line() {
         return 1
     fi
 
-    # input text 只对 ASCII 可靠；中文/emoji 必须走 ADBKeyboard
-    ascii=1
-    printf '%s' "$text" | LC_ALL=C grep -q '[^ -~]' && ascii=0
-
     # 策略 1：input text（引号整体传参，命令行内空格无需转义）
-    if [ "$ascii" = "1" ]; then
-        out=$($bin text "$text" </dev/null 2>&1)
-        rc=$?
-        if [ "$rc" -eq 0 ] && [ -z "$out" ]; then
-            log "input[$idx] ok(text): $text"
-            return 0
-        fi
-        if [ "$rc" -eq 0 ] && ! printf '%s' "$out" | grep -qi 'error\|exception\|not found\|unknown'; then
-            log "input[$idx] ok(text, out=$out): $text"
-            return 0
-        fi
-        log "input[$idx] text 返回 rc=$rc out=$out"
-    else
-        log "input[$idx] 内容含中文/符号，input text 不支持，尝试 ADBKeyboard"
+    out=$($bin text "$text" </dev/null 2>&1)
+    rc=$?
+    if [ "$rc" -eq 0 ] && [ -z "$out" ]; then
+        log "input[$idx] ok(text): $text"
+        return 0
     fi
+    log "input[$idx] text 返回 rc=$rc out=$out"
 
     # 策略 2：ADBKeyboard（支持中文/特殊字符，装了才用）
     if has_adbkeyboard; then
@@ -416,8 +290,6 @@ send_line() {
             fi
             log "input[$idx] adbkeyboard 失败 rc=$rc out=$out"
         fi
-    else
-        log "input[$idx] 未安装 ADBKeyboard，中文无法注入（装 ADBKeyboard 或改用脚本模式）"
     fi
 
     log "input[$idx] FAIL: 该行未能输入 -> $text"
@@ -449,7 +321,7 @@ do_input() {
         return 1
     fi
 
-    local total idx=0 line rc speed okc=0 failc=0
+    local total idx=0 line rc speed
     speed=$(get_conf speed.txt 3 | tr -dc '0-9')
     [ -z "$speed" ] && speed=3
     [ "$speed" -gt 60 ] && speed=60
@@ -465,11 +337,7 @@ do_input() {
         [ -z "$line" ] && continue
 
         idx=$((idx + 1))
-        if send_line "$line" "$idx"; then
-            okc=$((okc + 1))
-        else
-            failc=$((failc + 1))
-        fi
+        send_line "$line" "$idx"
         sleep 0.2
         send_enter
         rc=$?
@@ -487,8 +355,7 @@ do_input() {
     done
     exec 9<&-
 
-    log "input: 完成，已发送 $idx 条（成功 $okc / 失败 $failc）"
-    echo "DO_INPUT ok=$okc fail=$failc total=$idx"
+    log "input: 完成，已发送 $idx 条"
     [ "$idx" -gt 0 ]
 }
 
@@ -532,8 +399,6 @@ run_script_feed() {
         fi
     fi
     echo "===== $(date '+%m-%d %H:%M:%S') 执行脚本 $sp =====" >> "$slog" 2>/dev/null
-    local runner
-    runner=$(script_runner "$sp")
 
     if [ "$delay" -gt 0 ]; then
         log "-- 等待 ${delay}s 后执行脚本"
@@ -555,7 +420,7 @@ run_script_feed() {
             done < "$CONF/input.txt"
         fi
         log "stdin: 输入完成，共 $n 条"
-    } | sh "$runner" >> "$slog" 2>&1 &
+    } | sh "$sp" >> "$slog" 2>&1 &
 
     SCRIPT_FEED_PID=$!
     log "script feed pid=$SCRIPT_FEED_PID（脚本在后台运行，输出见 script.log）"

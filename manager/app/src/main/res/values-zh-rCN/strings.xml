@@ -432,8 +432,8 @@
     <string name="autoinput_mode_title">输入方式</string>
     <string name="autoinput_mode_script">脚本喂入</string>
     <string name="autoinput_mode_screen">屏幕输入</string>
-    <string name="autoinput_mode_script_desc">执行脚本，把内容逐行写入脚本标准输入（没配脚本时自动按屏幕输入执行）</string>
-    <string name="autoinput_mode_screen_desc">用 input 命令把内容逐行打进当前界面（输入框要先用光标定位；中文需装 ADBKeyboard）</string>
+    <string name="autoinput_mode_script_desc">执行脚本，把内容逐行写入脚本标准输入（每行 = 一次回车）</string>
+    <string name="autoinput_mode_screen_desc">执行脚本后，用 input 命令把内容逐行打到当前界面（输入框要先点出光标；中文需装 ADBKeyboard）</string>
     <string name="autoinput_keep_title">脚本执行完保持运行</string>
     <string name="autoinput_keep_summary">屏幕输入模式下，等输入全部完成后才结束脚本</string>
     <string name="autoinput_log_group">日志与维护</string>
@@ -441,7 +441,7 @@
     <string name="autoinput_log_summary">守护进程事件与脚本输出</string>
     <string name="autoinput_log_empty">暂无日志</string>
     <string name="autoinput_test_title">测试一次</string>
-    <string name="autoinput_test_summary">按当前配置立即执行一次（屏幕输入需先让输入框获得光标）</string>
+    <string name="autoinput_test_summary">按当前输入方式立即执行一次（屏幕输入需先让输入框获得光标）</string>
     <string name="autoinput_test_inject">测试到本框</string>
     <string name="autoinput_last_run">最近运行记录</string>
     <string name="autoinput_inject_ok">已注入 %1$s 行，看输入框</string>

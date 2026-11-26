@@ -43,21 +43,12 @@ start_script() {
 }
 
 run_flow() {
-    local pkg="$1" delay order keep mode sp
+    local pkg="$1" delay order keep mode
 
-    mode=$(get_conf input_mode.txt screen | tr -d '\r\n')
-    [ -z "$mode" ] && mode="screen"
+    mode=$(get_conf input_mode.txt script | tr -d '\r\n')
+    [ -z "$mode" ] && mode="script"
 
     # 模式一：把预输入内容喂给脚本（互动式脚本），不做任何屏幕模拟输入
-    if [ "$mode" != "screen" ]; then
-        sp=$(get_script_path)
-        if [ -z "$sp" ] || [ ! -f "$sp" ]; then
-            # 没有可用脚本时继续走脚本模式等于什么都不做，直接按屏幕输入执行
-            log "mode=script 但没有可用脚本（'$sp'），自动改用屏幕输入"
-            mode="screen"
-        fi
-    fi
-
     if [ "$mode" != "screen" ]; then
         delay=$(get_conf delay.txt 5 | tr -dc '0-9')
         [ -z "$delay" ] && delay=5
@@ -92,9 +83,6 @@ run_flow() {
         fi
     fi
 
-    if ! input_focused; then
-        log "!! 当前没有聚焦的输入框，input 注入可能不落字（先点一下目标输入框）"
-    fi
     log "-- 开始逐条输入（第 1 条立即输入）"
     do_input
 
@@ -124,7 +112,7 @@ while true; do
         continue
     fi
 
-    CUR=$(current_fg)
+    CUR=$(get_foreground_pkg)
 
     # 取不到 / 输入法、系统 UI、权限弹窗这类噪音：保持状态不变，避免抖动误判
     if [ -z "$CUR" ] || is_noise_pkg "$CUR"; then

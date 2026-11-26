@@ -4,19 +4,9 @@
 BIN_DIR="${0%/*}"
 . "$BIN_DIR/common.sh"
 
-mode=$(get_conf input_mode.txt screen | tr -d '\r\n')
-[ -z "$mode" ] && mode="screen"
-
-if [ "$mode" != "screen" ]; then
-    sp=$(get_script_path)
-    if [ -z "$sp" ] || [ ! -f "$sp" ]; then
-        log "manual test: 脚本模式下没有可用脚本，改为屏幕输入"
-        mode="screen"
-    fi
-fi
-
+mode=$(get_conf input_mode.txt script | tr -d '\r\n')
 if [ "$mode" = "screen" ]; then
-    log "manual test: 模拟屏幕输入（当前前台需有可输入的输入框）"
+    log "manual test: 模拟屏幕输入"
     do_input
 else
     log "manual test: 执行脚本并喂入预输入"

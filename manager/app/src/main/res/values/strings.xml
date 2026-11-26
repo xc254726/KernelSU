@@ -440,8 +440,8 @@
     <string name="autoinput_mode_title">Input mode</string>
     <string name="autoinput_mode_script">Feed script</string>
     <string name="autoinput_mode_screen">On-screen typing</string>
-    <string name="autoinput_mode_script_desc">Run the script and feed lines into its stdin (falls back to on-screen typing without a script)</string>
-    <string name="autoinput_mode_screen_desc">Type lines into the current screen with input (focus the field first; Chinese needs ADBKeyboard)</string>
+    <string name="autoinput_mode_script_desc">Run the script and feed lines into its stdin (one line = one Enter)</string>
+    <string name="autoinput_mode_screen_desc">Run the script, then type lines into the current screen with input (focus the field first; Chinese needs ADBKeyboard)</string>
     <string name="autoinput_keep_title">Keep script alive</string>
     <string name="autoinput_keep_summary">In on-screen mode, keep the script running until typing finishes</string>
     <string name="autoinput_log_group">Logs &amp; maintenance</string>
