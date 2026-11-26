@@ -1,6 +1,7 @@
 package me.weishu.kernelsu.ui.screen.autoinput
 
 import android.content.Context
+import android.content.Intent
 import android.content.pm.ApplicationInfo
 import android.util.Base64
 import android.util.Log
@@ -198,21 +199,35 @@ private data class PmApp(
     val pkg: String,
     val label: String,
     val system: Boolean,
+    val launcher: Boolean = false,
 )
 
-private fun loadPmApps(context: Context): List<PmApp> =
-    context.packageManager.getInstalledPackages(0)
+private fun loadPmApps(context: Context): List<PmApp> {
+    val pm = context.packageManager
+    // 有桌面入口的包（launcher）优先展示，避免系统服务把列表淹没
+    val launcherPkgs = runCatching {
+        pm.queryIntentActivities(
+            Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER),
+            0,
+        ).mapNotNull { it.activityInfo?.packageName }.toSet()
+    }.getOrDefault(emptySet())
+
+    return pm.getInstalledPackages(0)
         .mapNotNull { info ->
             val ai = info.applicationInfo ?: return@mapNotNull null
             PmApp(
                 pkg = info.packageName,
-                label = runCatching { ai.loadLabel(context.packageManager).toString() }
+                label = runCatching { ai.loadLabel(pm).toString() }
                     .getOrDefault(info.packageName),
                 system = (ai.flags and ApplicationInfo.FLAG_SYSTEM) != 0,
+                launcher = info.packageName in launcherPkgs,
             )
         }
         .filter { it.pkg != "android" }
-        .sortedBy { it.label.lowercase() }
+        // 桌面应用 + 用户自己装的应用；纯系统组件不列（基本不会去监听它们）
+        .filter { it.launcher || !it.system }
+        .sortedWith(compareByDescending<PmApp> { it.launcher }.thenBy { it.label.lowercase() })
+}
 
 private fun runRoot(ksuCli: KsuCliRepository, script: String): String {
     val out = ArrayList<String>()
@@ -304,7 +319,7 @@ private fun parseConfig(raw: String): AutoInputConfig {
         speedSec = num("speed", 3),
         minInterval = num("interval", 8),
         mode = str("mode").ifEmpty { "script" },
-        keepScript = str("keep").ifEmpty { "1" } == "1",
+        keepScript = true,
     )
 }
 
@@ -359,7 +374,7 @@ fun AutoInputScreen() {
             writeFile(ksuCli, "$CONF_DIR/speed.txt", next.speedSec.toString())
             writeFile(ksuCli, "$CONF_DIR/min_interval.txt", next.minInterval.toString())
             writeFile(ksuCli, "$CONF_DIR/input_mode.txt", next.mode)
-            writeFile(ksuCli, "$CONF_DIR/keep_script.txt", if (next.keepScript) "1" else "0")
+            writeFile(ksuCli, "$CONF_DIR/keep_script.txt", "1")
         }
         config = next
         busy = false
@@ -562,17 +577,6 @@ fun AutoInputScreen() {
                             title = stringResource(R.string.autoinput_mode_title),
                             description = modeLabel,
                             onClick = { showModePicker = true },
-                        )
-                    }
-                    item {
-                        SettingsSwitchWidget(
-                            title = stringResource(R.string.autoinput_keep_title),
-                            description = stringResource(R.string.autoinput_keep_summary),
-                            enabled = config.mode == "screen",
-                            checked = config.keepScript,
-                            onCheckedChange = { on ->
-                                scope.launch { persist(config.copy(keepScript = on)) }
-                            },
                         )
                     }
                 }
