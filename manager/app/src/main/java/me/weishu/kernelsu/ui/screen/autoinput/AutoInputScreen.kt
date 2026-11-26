@@ -4,8 +4,11 @@ import android.content.Context
 import android.content.pm.ApplicationInfo
 import android.util.Base64
 import android.util.Log
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -16,12 +19,15 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -30,7 +36,6 @@ import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.twotone.Add
 import androidx.compose.material.icons.twotone.Delete
-import androidx.compose.material.icons.twotone.Tune
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -43,6 +48,8 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBarDefaults
@@ -56,11 +63,17 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -84,6 +97,7 @@ import me.weishu.kernelsu.ui.component.settings.SettingsSwitchWidget
 import me.weishu.kernelsu.ui.navigation3.LocalNavigator
 import me.weishu.kernelsu.ui.theme.blurEffect
 import me.weishu.kernelsu.ui.theme.blurSource
+import me.weishu.kernelsu.ui.util.AppInfo
 import me.weishu.kernelsu.ui.util.adaptiveScaffoldWindowInsets
 import me.weishu.kernelsu.ui.util.showReplacingSnackbar
 
@@ -397,6 +411,30 @@ fun AutoInputScreen() {
 
     val inputLineCount = config.input.lineSequence().count { it.isNotBlank() }
 
+    val toggle: (Boolean) -> Unit = { on ->
+        scope.launch {
+            busy = true
+            withContext(Dispatchers.IO) {
+                if (on) {
+                    if (!status.installed) installScripts(context, ksuCli)
+                    writeFile(ksuCli, "${CONF_DIR}/status", "1")
+                    runRoot(ksuCli, "sh ${BIN_DIR}/restart.sh >/dev/null 2>&1")
+                } else {
+                    writeFile(ksuCli, "${CONF_DIR}/status", "0")
+                    runRoot(
+                        ksuCli,
+                        "for p in \$(pgrep -f 'auto_input/bin/[s]upervisor\\.sh' 2>/dev/null); do kill -9 \$p; done\n" +
+                            "for p in \$(pgrep -f 'auto_input/bin/[d]aemon\\.sh' 2>/dev/null); do kill -9 \$p; done",
+                    )
+                }
+            }
+            delay(if (on) 800 else 400)
+            refresh()
+            busy = false
+            snackBarHost.showReplacingSnackbar(if (on) msgStarted else msgStopped)
+        }
+    }
+
     ScaffoldLike(
         title = stringResource(R.string.autoinput_title),
         scrollBehavior = scrollBehavior,
@@ -410,40 +448,15 @@ fun AutoInputScreen() {
                 .blurSource(),
         ) {
             item {
-                SegmentedColumn(title = stringResource(R.string.autoinput_title)) {
-                    item {
-                        SettingsSwitchWidget(
-                            icon = Icons.TwoTone.Tune,
-                            title = stringResource(R.string.autoinput_title),
-                            description = statusText,
-                            enabled = loaded && !busy,
-                            checked = status.installed && status.enabled,
-                            onCheckedChange = { on ->
-                                scope.launch {
-                                    busy = true
-                                    withContext(Dispatchers.IO) {
-                                        if (on) {
-                                            if (!status.installed) installScripts(context, ksuCli)
-                                            writeFile(ksuCli, "$CONF_DIR/status", "1")
-                                            runRoot(ksuCli, "sh $BIN_DIR/restart.sh >/dev/null 2>&1")
-                                        } else {
-                                            writeFile(ksuCli, "$CONF_DIR/status", "0")
-                                            runRoot(
-                                                ksuCli,
-                                                "for p in \$(pgrep -f 'auto_input/bin/[s]upervisor\\.sh' 2>/dev/null); do kill -9 \$p; done\n" +
-                                                    "for p in \$(pgrep -f 'auto_input/bin/[d]aemon\\.sh' 2>/dev/null); do kill -9 \$p; done",
-                                            )
-                                        }
-                                    }
-                                    delay(if (on) 800 else 400)
-                                    refresh()
-                                    busy = false
-                                    snackBarHost.showReplacingSnackbar(if (on) msgStarted else msgStopped)
-                                }
-                            },
-                        )
-                    }
-                }
+                AutoInputHero(
+                    title = stringResource(R.string.autoinput_title),
+                    statusText = statusText,
+                    loaded = loaded,
+                    checked = status.installed && status.enabled,
+                    running = status.installed && status.enabled && status.daemonRunning,
+                    enabled = loaded && !busy,
+                    onCheckedChange = toggle,
+                )
             }
 
             item {
@@ -785,6 +798,120 @@ fun AutoInputScreen() {
 }
 
 private data class Quad(val title: String, val min: Int, val max: Int, val value: Int)
+
+/** 卡片底色：取自图标里深色包体的冷蓝调，与卡密登录页的藏青保持一致。 */
+private val HeroTop = Color(0xFF2B2E42)
+private val HeroBottom = Color(0xFF474E70)
+
+/**
+ * 页首状态卡：左侧图标圆盘 + 运行状态点 + 大开关。
+ * 右侧用图标本体做一层淡淡的水印，让页面和桌面图标有视觉联系。
+ */
+@Composable
+private fun AutoInputHero(
+    title: String,
+    statusText: String,
+    loaded: Boolean,
+    checked: Boolean,
+    running: Boolean,
+    enabled: Boolean,
+    onCheckedChange: (Boolean) -> Unit,
+) {
+    val dotColor = when {
+        !loaded -> Color.White.copy(alpha = 0.35f)
+        !checked -> Color.White.copy(alpha = 0.28f)
+        running -> Color(0xFF7CE3AE)
+        else -> Color(0xFFFFC46B)
+    }
+    val iconRes = AppInfo.appIconRes()
+
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 4.dp)
+            .clip(RoundedCornerShape(24.dp))
+            .background(Brush.verticalGradient(listOf(HeroTop, HeroBottom))),
+    ) {
+        Image(
+            painter = painterResource(id = iconRes),
+            contentDescription = null,
+            contentScale = ContentScale.Crop,
+            modifier = Modifier
+                .align(Alignment.CenterEnd)
+                .size(148.dp)
+                .offset(x = 36.dp, y = 10.dp)
+                .alpha(0.10f)
+                .clip(CircleShape),
+        )
+
+        Row(
+            modifier = Modifier.padding(horizontal = 18.dp, vertical = 18.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(58.dp)
+                    .clip(CircleShape)
+                    .background(Color.White.copy(alpha = 0.94f)),
+                contentAlignment = Alignment.Center,
+            ) {
+                Image(
+                    painter = painterResource(id = iconRes),
+                    contentDescription = null,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier
+                        .size(50.dp)
+                        .clip(CircleShape),
+                )
+            }
+
+            Spacer(Modifier.width(14.dp))
+
+            Column(Modifier.weight(1f)) {
+                Text(
+                    text = title,
+                    color = Color.White,
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    letterSpacing = 0.3f.sp,
+                )
+                Spacer(Modifier.height(5.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(
+                        modifier = Modifier
+                            .size(7.dp)
+                            .clip(CircleShape)
+                            .background(dotColor),
+                    )
+                    Spacer(Modifier.width(6.dp))
+                    Text(
+                        text = statusText,
+                        color = Color.White.copy(alpha = 0.78f),
+                        fontSize = 12.sp,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+            }
+
+            Spacer(Modifier.width(8.dp))
+
+            Switch(
+                checked = checked,
+                onCheckedChange = onCheckedChange,
+                enabled = enabled,
+                colors = SwitchDefaults.colors(
+                    checkedThumbColor = HeroTop,
+                    checkedTrackColor = Color(0xFFE9EBF4),
+                    checkedBorderColor = Color.Transparent,
+                    uncheckedThumbColor = Color.White.copy(alpha = 0.92f),
+                    uncheckedTrackColor = Color.White.copy(alpha = 0.16f),
+                    uncheckedBorderColor = Color.White.copy(alpha = 0.45f),
+                ),
+            )
+        }
+    }
+}
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
 @Composable
