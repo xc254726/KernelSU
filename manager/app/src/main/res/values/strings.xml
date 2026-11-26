@@ -401,10 +401,11 @@
     <string name="cancel">Cancel</string>
 
     <!-- Auto Input -->
-    <string name="autoinput_title">Auto Input</string>
+    <string name="autoinput_title">Monitor</string>
+    <string name="autoinput_entry_summary">Fill in content when a watched app opens</string>
     <string name="autoinput_saved">Saved</string>
-    <string name="autoinput_started">Auto input enabled</string>
-    <string name="autoinput_stopped">Auto input disabled</string>
+    <string name="autoinput_started">Monitor enabled</string>
+    <string name="autoinput_stopped">Monitor disabled</string>
     <string name="autoinput_removed">Removed</string>
     <string name="autoinput_test_done">Test triggered</string>
     <string name="autoinput_status_loading">Loading…</string>
@@ -449,7 +450,7 @@
     <string name="autoinput_test_summary">Execute once with the current settings</string>
     <string name="autoinput_diag_title">Self-check</string>
     <string name="autoinput_diag_summary">Check input command and foreground detection</string>
-    <string name="autoinput_remove_title">Remove auto input</string>
+    <string name="autoinput_remove_title">Remove monitor</string>
     <string name="autoinput_remove_summary">Stop the daemon and delete scripts and settings</string>
     <string name="autoinput_remove_confirm">This stops the daemon and deletes the boot script and all settings. Continue?</string>
     <string name="autoinput_pick_app">Select apps</string>

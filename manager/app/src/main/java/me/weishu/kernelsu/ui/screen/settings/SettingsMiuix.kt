@@ -117,6 +117,29 @@ fun SettingPagerMiuix(
                             .padding(top = 12.dp)
                             .fillMaxWidth(),
                     ) {
+                        val autoInput = stringResource(id = R.string.autoinput_title)
+                        ArrowPreference(
+                            title = autoInput,
+                            summary = stringResource(id = R.string.autoinput_entry_summary),
+                            startAction = {
+                                Icon(
+                                    Icons.Rounded.EditNote,
+                                    modifier = Modifier.padding(end = 6.dp),
+                                    contentDescription = autoInput,
+                                    tint = colorScheme.onBackground
+                                )
+                            },
+                            onClick = actions.onOpenAutoInput,
+                        )
+                    }
+                }
+
+                item {
+                    Card(
+                        modifier = Modifier
+                            .padding(top = 12.dp)
+                            .fillMaxWidth(),
+                    ) {
 //                        SwitchPreference(
 //                            title = stringResource(id = R.string.settings_check_update),
 //                            summary = stringResource(id = R.string.settings_check_update_summary),
@@ -516,19 +539,6 @@ fun SettingPagerMiuix(
                             .padding(vertical = 12.dp)
                             .fillMaxWidth(),
                     ) {
-                        val autoInput = stringResource(id = R.string.autoinput_title)
-                        ArrowPreference(
-                            title = autoInput,
-                            startAction = {
-                                Icon(
-                                    Icons.Rounded.EditNote,
-                                    modifier = Modifier.padding(end = 6.dp),
-                                    contentDescription = autoInput,
-                                    tint = colorScheme.onBackground
-                                )
-                            },
-                            onClick = actions.onOpenAutoInput,
-                        )
                         ArrowPreference(
                             title = stringResource(id = R.string.send_log),
                             startAction = {

@@ -100,6 +100,30 @@ fun SettingPagerMaterial(
                 .nestedScroll(scrollBehavior.nestedScrollConnection)
                 .verticalScroll(rememberScrollState())
         ) {
+            SegmentedColumn(
+                modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 13.dp),
+                content = listOf(
+                    {
+                        SegmentedListItem(
+                            onClick = actions.onOpenAutoInput,
+                            headlineContent = { Text(stringResource(id = R.string.autoinput_title)) },
+                            supportingContent = {
+                                Text(stringResource(id = R.string.autoinput_entry_summary))
+                            },
+                            leadingContent = {
+                                Icon(
+                                    Icons.Filled.EditNote,
+                                    stringResource(id = R.string.autoinput_title)
+                                )
+                            },
+                            trailingContent = {
+                                Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null)
+                            },
+                        )
+                    }
+                )
+            )
+
             KsuIsValid {
                 SegmentedColumn(
                     modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 13.dp),
@@ -417,18 +441,6 @@ fun SettingPagerMaterial(
             SegmentedColumn(
                 modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 13.dp),
                 content = listOf(
-                    {
-                        SegmentedListItem(
-                            onClick = actions.onOpenAutoInput,
-                            headlineContent = { Text(stringResource(id = R.string.autoinput_title)) },
-                            leadingContent = {
-                                Icon(
-                                    Icons.Filled.EditNote,
-                                    stringResource(id = R.string.autoinput_title)
-                                )
-                            },
-                        )
-                    },
                     {
                         SegmentedListItem(
                             onClick = { showBottomSheet = true },
