@@ -4,6 +4,10 @@
 MODDIR=/data/adb/auto_input
 BIN_DIR="$MODDIR/bin"
 
+# service.d 环境 PATH 很精简，dumpsys/input/getprop 都可能找不到，
+# 守护进程会表现为「识别不到前台 → 永远不触发」。这里先补全 PATH 再启动。
+export PATH=/system/bin:/system/xbin:/sbin:/vendor/bin:$PATH
+
 # 最早期打点，便于确认本脚本是否真的被执行
 mkdir -p /data/adb/auto_input "$MODDIR/run" 2>/dev/null
 echo "[$(date '+%m-%d %H:%M:%S')] service.sh invoked (MODDIR=$MODDIR)" >> /data/adb/auto_input/daemon.log

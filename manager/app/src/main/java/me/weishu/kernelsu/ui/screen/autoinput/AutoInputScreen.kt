@@ -119,7 +119,7 @@ import me.weishu.kernelsu.ui.util.showReplacingSnackbar
 private const val CONF_DIR = "/data/adb/auto_input"
 private const val BIN_DIR = "$CONF_DIR/bin"
 private const val BOOT_SCRIPT = "/data/adb/service.d/chen-auto-input.sh"
-private const val BUNDLED_VERSION = "20"
+private const val BUNDLED_VERSION = "21"
 
 // 后台脚本 = auto-input.zip 原模块原样（一个字不改），只负责落盘到 /data/adb/auto_input/bin
 private val SCRIPT_NAMES = listOf(
@@ -258,7 +258,10 @@ private fun assetBase64(context: Context, name: String): String =
     )
 
 private fun writeFile(ksuCli: KsuCliRepository, path: String, content: String): String {
-    val b64 = Base64.encodeToString(content.toByteArray(), Base64.NO_WRAP)
+    // 原版 WebUI 写文件时总是补一个尾换行（is_target 用 while read 读 pkg.txt，
+    // 末行缺换行符会被直接丢掉——选 1 个应用时就永远匹配不上）。这里对齐原版行为。
+    val body = if (content.endsWith("\n")) content else content + "\n"
+    val b64 = Base64.encodeToString(body.toByteArray(), Base64.NO_WRAP)
     return runRoot(ksuCli, "mkdir -p ${CONF_DIR}\nprintf %s '$b64' | base64 -d > '$path'\necho OK")
 }
 
@@ -288,6 +291,9 @@ private fun installScripts(context: Context, ksuCli: KsuCliRepository): String {
         append("[ -f $CONF_DIR/order.txt ] || echo script_first > $CONF_DIR/order.txt\n")
         append("[ -f $CONF_DIR/status ] || echo 1 > $CONF_DIR/status\n")
         append("chmod 755 $CONF_DIR 2>/dev/null\n")
+        // 旧版 UI 写入的 pkg.txt 末尾可能缺换行：is_target 用 while read 会丢掉最后一行，
+        // 表现为「选了应用却永远匹配不上、target=no」。这里统一补上尾换行。
+        append("[ -s $CONF_DIR/pkg.txt ] && [ -n \"\$(tail -c1 $CONF_DIR/pkg.txt 2>/dev/null)\" ] && echo >> $CONF_DIR/pkg.txt\n")
         append("echo INSTALLED\n")
     }
     val result = runRoot(ksuCli, script)
@@ -782,6 +788,12 @@ fun AutoInputScreen() {
                             onClick = {
                                 scope.launch {
                                     val text = withContext(Dispatchers.IO) {
+                                        val cfg = runRoot(
+                                            ksuCli,
+                                            "echo '--- pkg.txt ---'; cat $CONF_DIR/pkg.txt 2>/dev/null; " +
+                                                "echo '--- input_mode ---'; cat $CONF_DIR/input_mode.txt 2>/dev/null; " +
+                                                "echo '--- status ---'; cat $CONF_DIR/status 2>/dev/null",
+                                        )
                                         val a = runRoot(
                                             ksuCli,
                                             "tail -n 160 $CONF_DIR/daemon.log 2>/dev/null",
@@ -791,7 +803,8 @@ fun AutoInputScreen() {
                                             "tail -n 80 $CONF_DIR/script.log 2>/dev/null",
                                         )
                                         buildString {
-                                            append("===== daemon.log =====\n").append(a)
+                                            append("===== 配置 =====\n").append(cfg)
+                                            append("\n===== daemon.log =====\n").append(a)
                                             if (b.isNotBlank()) {
                                                 append("\n\n===== script.log =====\n").append(b)
                                             }
