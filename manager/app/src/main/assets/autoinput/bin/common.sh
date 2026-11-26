@@ -4,6 +4,11 @@
 CONF=/data/adb/auto_input
 LOG="$CONF/daemon.log"
 
+# 守护进程由 setsid/nohup 从 root shell 拉起，PATH 未必完整；
+# 缺了 /system/bin 就会找不到 dumpsys / input，表现为「能手动执行但不触发」
+PATH=/system/bin:/system/xbin:/sbin:/vendor/bin:${PATH}
+export PATH
+
 mkdir -p "$CONF" 2>/dev/null
 
 log() {

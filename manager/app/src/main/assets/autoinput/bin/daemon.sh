@@ -32,6 +32,15 @@ fi
 
 echo "$$" > "$MODDIR/run/daemon.pid" 2>/dev/null
 log "daemon up (pid=$$)"
+log "  开关=$(get_conf status 1) 模式=$(get_conf input_mode.txt script) 等待=$(get_conf delay.txt 5)s 回车=$(get_conf enter_count.txt 1)"
+if [ -s "$CONF/pkg.txt" ]; then
+    log "  监听列表: $(tr '\n' ' ' < "$CONF/pkg.txt" 2>/dev/null | tr -d '\r')"
+else
+    log "!! 监听列表是空的，不会触发任何应用（先去页面里添加应用）"
+fi
+if [ -z "$(get_script_path)" ]; then
+    log "!! 没有配置脚本路径（脚本模式会直接跳过）"
+fi
 
 # 按「保持运行」开关决定用哪种方式执行脚本
 start_script() {
@@ -95,6 +104,9 @@ FIRED=""        # 当前已触发过的目标应用
 AWAY=0          # 连续看到非目标应用的次数
 LAST_PKG=""     # 上次触发过的应用
 LAST_TS=0       # 上次触发结束的时间戳（秒）
+LAST_FG=""      # 上次记录到日志的前台包名
+EMPTY=0         # 连续读不到前台的次数
+EMPTY_WARN=""   # 是否已经提醒过"读不到前台"
 
 # daemon 被正常信号结束时，别把脚本进程留在后台
 cleanup() {
@@ -116,8 +128,26 @@ while true; do
 
     # 取不到 / 输入法、系统 UI、权限弹窗这类噪音：保持状态不变，避免抖动误判
     if [ -z "$CUR" ] || is_noise_pkg "$CUR"; then
+        if [ -z "$CUR" ]; then
+            EMPTY=$((EMPTY + 1))
+            # 连续一分钟都读不到前台：只提醒一次（说明 dumpsys 被 ROM 拦了，触发永远不会生效）
+            if [ "$EMPTY" -ge 60 ] && [ "$EMPTY_WARN" != "1" ]; then
+                log "!! 连续读不到前台包名：dumpsys 被拦，触发不会生效（点「自检」看详情）"
+                EMPTY_WARN=1
+            fi
+        else
+            EMPTY=0
+            EMPTY_WARN=""
+        fi
         sleep 1
         continue
+    fi
+
+    # 前台换人时留一行痕迹：排查「为什么没触发」时，直接看 daemon 眼里当前是谁
+    if [ "$CUR" != "$LAST_FG" ]; then
+        if is_target "$CUR"; then _tg=yes; else _tg=no; fi
+        log "fg: $CUR (target=$_tg)"
+        LAST_FG="$CUR"
     fi
 
     if [ "$CUR" = "$FIRED" ]; then

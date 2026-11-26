@@ -120,7 +120,7 @@ import me.weishu.kernelsu.ui.util.showReplacingSnackbar
 private const val CONF_DIR = "/data/adb/auto_input"
 private const val BIN_DIR = "$CONF_DIR/bin"
 private const val BOOT_SCRIPT = "/data/adb/service.d/chen-auto-input.sh"
-private const val BUNDLED_VERSION = "8"
+private const val BUNDLED_VERSION = "9"
 
 private val SCRIPT_NAMES = listOf(
     "common.sh",
@@ -410,15 +410,17 @@ fun AutoInputScreen() {
     val msgScriptNoPath = stringResource(R.string.autoinput_script_no_path)
     val msgScriptNotFound = stringResource(R.string.autoinput_script_not_found)
 
-    suspend fun refresh() {
+    suspend fun refresh(): AutoInputStatus {
         val rawStatus = withContext(Dispatchers.IO) { runRoot(ksuCli, STATUS_SCRIPT) }
-        status = parseStatus(rawStatus)
+        val st = parseStatus(rawStatus)
+        status = st
         config = parseConfig(withContext(Dispatchers.IO) { runRoot(ksuCli, READ_CONFIG_SCRIPT) })
         // 直接在页面上露出最近几行运行日志，省得每次都要点开日志对话框
         lastRun = withContext(Dispatchers.IO) {
             runRoot(ksuCli, "tail -n 8 $CONF_DIR/daemon.log 2>/dev/null")
         }.trim()
         loaded = true
+        return st
     }
 
     suspend fun persist(next: AutoInputConfig) {
@@ -451,17 +453,27 @@ fun AutoInputScreen() {
             busy = false
             upgraded = true
         }
-        refresh()
+        val st = refresh()
         pmApps = withContext(Dispatchers.IO) { loadPmApps(context) }
         // 刚覆盖过脚本时必须重启一次：老的守护进程还在内存里跑旧逻辑
-        if (upgraded || (status.installed && status.enabled && !status.daemonRunning)) {
+        if (upgraded || (st.installed && st.enabled && !st.daemonRunning)) {
             withContext(Dispatchers.IO) { runRoot(ksuCli, "sh $BIN_DIR/restart.sh >/dev/null 2>&1") }
             delay(1200)
             refresh()
         }
+        // 守护进程被 ROM 杀掉的场景很常见：页面停留期间每分钟自愈一次
+        var lastHeal = 0L
         while (true) {
             delay(4000)
-            if (!busy) refresh()
+            if (busy) continue
+            val cur = refresh()
+            val now = System.currentTimeMillis()
+            if (cur.installed && cur.enabled && !cur.daemonRunning && now - lastHeal > 60_000) {
+                lastHeal = now
+                withContext(Dispatchers.IO) {
+                    runRoot(ksuCli, "sh $BIN_DIR/restart.sh >/dev/null 2>&1")
+                }
+            }
         }
     }
 
