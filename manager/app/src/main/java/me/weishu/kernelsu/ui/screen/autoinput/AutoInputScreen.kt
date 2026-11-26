@@ -96,7 +96,7 @@ import me.weishu.kernelsu.ui.util.showReplacingSnackbar
  * 后台逻辑来自 Auto Input 模块（已调好的前台监听 / 脚本喂入 / 屏幕注入），
  * 页面的职责只有三件：把脚本落到 /data/adb、读写 /data/adb/auto_input 配置、显示运行状态。
  *
- *  脚本常驻   : /data/adb/auto_input/bin/*.sh
+ *  脚本常驻   : /data/adb/auto_input/bin 下的 daemon.sh 等脚本
  *  开机拉起   : /data/adb/service.d/chen-auto-input.sh
  *  配置文件   : /data/adb/auto_input/{pkg,input,script_path,delay,speed,min_interval,input_mode,keep_script,status}.txt
  *
