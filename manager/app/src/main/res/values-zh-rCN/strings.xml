@@ -429,6 +429,11 @@
     <string name="autoinput_speed_title">每条间隔</string>
     <string name="autoinput_interval_title">最小触发间隔</string>
     <string name="autoinput_seconds">%1$d 秒</string>
+    <string name="autoinput_times">%1$d 次</string>
+    <string name="autoinput_enter_title">每行回车次数</string>
+    <string name="autoinput_enter_desc_one">默认，每行按一次回车</string>
+    <string name="autoinput_enter_desc_two">中文输入法常把第一次回车用来确认候选词，这种情况下选两次</string>
+    <string name="autoinput_enter_desc_three">个别界面要连按三次才响应回车</string>
     <string name="autoinput_mode_title">输入方式</string>
     <string name="autoinput_mode_script">脚本喂入</string>
     <string name="autoinput_mode_screen">屏幕输入</string>
@@ -446,6 +451,7 @@
     <string name="autoinput_last_run">最近运行记录</string>
     <string name="autoinput_inject_ok">已注入 %1$s 行，看输入框</string>
     <string name="autoinput_inject_partial">注入 %1$s 行成功、%2$s 行失败（见日志）</string>
+    <string name="autoinput_inject_enter_fail">文字已输入 %1$s 行，但回车全失败（见自检「回车测试」）</string>
     <string name="autoinput_live_title">实时前台</string>
     <string name="autoinput_live_unknown">读不到前台应用</string>
     <string name="autoinput_live_unknown_hint">没能从系统里读出现在是哪个应用，稍后自动刷新再试</string>
@@ -456,9 +462,9 @@
     <string name="autoinput_live_not_target">不是监听目标，切到目标应用才会触发</string>
     <string name="autoinput_run_now">立即执行</string>
     <string name="autoinput_run_now_done">已重启监听，稍等几秒看运行记录</string>
-    <string name="autoinput_run_script">立即运行脚本</string>
-    <string name="autoinput_run_script_summary">不用等触发，直接按当前路径跑一次脚本</string>
-    <string name="autoinput_script_started">脚本已启动，看下面运行记录</string>
+    <string name="autoinput_run_script">立即执行一次</string>
+    <string name="autoinput_run_script_summary">不用等触发，按当前设置跑完整流程（脚本 + 输入 + 回车）</string>
+    <string name="autoinput_script_started">已开始执行，看下面运行记录</string>
     <string name="autoinput_script_no_path">还没设置脚本路径</string>
     <string name="autoinput_script_not_found">脚本文件不存在，检查一下路径</string>
     <string name="autoinput_mode_script_tip_title">当前是脚本喂入</string>

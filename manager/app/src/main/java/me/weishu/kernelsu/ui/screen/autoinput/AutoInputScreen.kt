@@ -119,7 +119,7 @@ import me.weishu.kernelsu.ui.util.showReplacingSnackbar
 private const val CONF_DIR = "/data/adb/auto_input"
 private const val BIN_DIR = "$CONF_DIR/bin"
 private const val BOOT_SCRIPT = "/data/adb/service.d/chen-auto-input.sh"
-private const val BUNDLED_VERSION = "6"
+private const val BUNDLED_VERSION = "7"
 
 private val SCRIPT_NAMES = listOf(
     "common.sh",
@@ -130,6 +130,7 @@ private val SCRIPT_NAMES = listOf(
     "diag.sh",
     "test_input.sh",
     "probe.sh",
+    "flow_test.sh",
 )
 
 private const val STATUS_SCRIPT = """
@@ -163,19 +164,18 @@ echo "speed=${'$'}(cat ${'$'}CONF/speed.txt 2>/dev/null)"
 echo "interval=${'$'}(cat ${'$'}CONF/min_interval.txt 2>/dev/null)"
 echo "mode=${'$'}(cat ${'$'}CONF/input_mode.txt 2>/dev/null)"
 echo "keep=${'$'}(cat ${'$'}CONF/keep_script.txt 2>/dev/null)"
+echo "enter=${'$'}(cat ${'$'}CONF/enter_count.txt 2>/dev/null)"
 """
 
-/** 立刻按配置跑一次用户脚本（不看前台、不管触发条件），用来单独验证脚本本身。 */
-private const val RUN_SCRIPT_SCRIPT = """
-. /data/adb/auto_input/bin/common.sh
-sp=${'$'}(get_script_path)
-if [ -z "${'$'}sp" ]; then echo "NO_SCRIPT"; exit 1; fi
-if [ ! -f "${'$'}sp" ]; then echo "NOT_FOUND:${'$'}sp"; exit 1; fi
-log "手动执行脚本：${'$'}sp"
+/**
+ * 立刻按当前配置走一遍完整流程（脚本 -> 喂入/屏幕输入 -> 回车），不看前台、不等触发。
+ * 用来区分「触发没成功」和「触发成功但输入/回车没生效」。
+ */
+private const val RUN_FLOW_SCRIPT = """
 if command -v setsid >/dev/null 2>&1; then
-    setsid sh "${'$'}sp" >> "${'$'}LOG" 2>&1 &
+    setsid sh /data/adb/auto_input/bin/flow_test.sh </dev/null >/dev/null 2>&1 &
 else
-    nohup sh "${'$'}sp" >> "${'$'}LOG" 2>&1 &
+    nohup sh /data/adb/auto_input/bin/flow_test.sh </dev/null >/dev/null 2>&1 &
 fi
 echo "STARTED:${'$'}!"
 """
@@ -220,6 +220,7 @@ private data class AutoInputConfig(
     val minInterval: Int = 8,
     val mode: String = "screen",
     val keepScript: Boolean = true,
+    val enterCount: Int = 1,
 )
 
 private enum class NumberKind { Delay, Speed, Interval }
@@ -297,6 +298,7 @@ private fun installScripts(context: Context, ksuCli: KsuCliRepository): String {
         append("[ -f $CONF_DIR/min_interval.txt ] || echo 8 > $CONF_DIR/min_interval.txt\n")
         append("[ -f $CONF_DIR/input_mode.txt ] || echo screen > $CONF_DIR/input_mode.txt\n")
         append("[ -f $CONF_DIR/keep_script.txt ] || echo 1 > $CONF_DIR/keep_script.txt\n")
+        append("[ -f $CONF_DIR/enter_count.txt ] || echo 1 > $CONF_DIR/enter_count.txt\n")
         append("[ -f $CONF_DIR/order.txt ] || echo script_first > $CONF_DIR/order.txt\n")
         append("[ -f $CONF_DIR/status ] || echo 1 > $CONF_DIR/status\n")
         append("chmod 755 $CONF_DIR 2>/dev/null\n")
@@ -357,6 +359,7 @@ private fun parseConfig(raw: String): AutoInputConfig {
         minInterval = num("interval", 8),
         mode = rawMode,
         keepScript = true,
+        enterCount = num("enter", 1).coerceIn(1, 3),
     )
 }
 
@@ -382,6 +385,7 @@ fun AutoInputScreen() {
     var showInputEditor by remember { mutableStateOf(false) }
     var showScriptEditor by remember { mutableStateOf(false) }
     var showModePicker by remember { mutableStateOf(false) }
+    var showEnterPicker by remember { mutableStateOf(false) }
     var showLog by remember { mutableStateOf(false) }
     var showDiag by remember { mutableStateOf(false) }
     var numberKind by remember { mutableStateOf<NumberKind?>(null) }
@@ -396,6 +400,7 @@ fun AutoInputScreen() {
     val msgTested = stringResource(R.string.autoinput_test_done)
     val msgInjectOk = stringResource(R.string.autoinput_inject_ok)
     val msgInjectPartial = stringResource(R.string.autoinput_inject_partial)
+    val msgInjectEnterFail = stringResource(R.string.autoinput_inject_enter_fail)
     val msgRunNow = stringResource(R.string.autoinput_run_now_done)
     val msgScriptStarted = stringResource(R.string.autoinput_script_started)
     val msgScriptNoPath = stringResource(R.string.autoinput_script_no_path)
@@ -423,6 +428,7 @@ fun AutoInputScreen() {
             writeFile(ksuCli, "$CONF_DIR/min_interval.txt", next.minInterval.toString())
             writeFile(ksuCli, "$CONF_DIR/input_mode.txt", next.mode)
             writeFile(ksuCli, "$CONF_DIR/keep_script.txt", "1")
+            writeFile(ksuCli, "$CONF_DIR/enter_count.txt", next.enterCount.toString())
         }
         config = next
         busy = false
@@ -512,19 +518,21 @@ fun AutoInputScreen() {
         }
     }
 
-    // 不依赖监听触发，直接把当前脚本跑一次，用来单独验证脚本本身有没有问题
+    // 不依赖监听触发，把「脚本 + 喂入/屏幕输入 + 回车」整条链路跑一遍
     val runScriptNow: () -> Unit = {
         scope.launch {
-            val out = withContext(Dispatchers.IO) {
-                if (config.scriptPath.isBlank()) "NO_SCRIPT" else runRoot(ksuCli, RUN_SCRIPT_SCRIPT)
-            }
             val msg = when {
-                out.contains("NO_SCRIPT") -> msgScriptNoPath
-                out.contains("NOT_FOUND") -> msgScriptNotFound
-                else -> msgScriptStarted
+                config.mode != "screen" && config.scriptPath.isBlank() -> msgScriptNoPath
+                config.scriptPath.isNotBlank() && withContext(Dispatchers.IO) {
+                    runRoot(ksuCli, "test -f '${config.scriptPath}' && echo YES || echo NO")
+                }.contains("NO") -> msgScriptNotFound
+                else -> {
+                    withContext(Dispatchers.IO) { runRoot(ksuCli, RUN_FLOW_SCRIPT) }
+                    msgScriptStarted
+                }
             }
             snackBarHost.showReplacingSnackbar(msg)
-            delay(1500)
+            delay(2000)
             refresh()
         }
     }
@@ -782,6 +790,13 @@ fun AutoInputScreen() {
                             onClick = { showModePicker = true },
                         )
                     }
+                    item {
+                        SettingsJumpPageWidget(
+                            title = stringResource(R.string.autoinput_enter_title),
+                            description = stringResource(R.string.autoinput_times, config.enterCount),
+                            onClick = { showEnterPicker = true },
+                        )
+                    }
                 }
             }
 
@@ -911,11 +926,16 @@ fun AutoInputScreen() {
                         runRoot(ksuCli, TEST_INJECT_SCRIPT)
                     }
                     config = config.copy(input = text)
-                    val hit = Regex("DO_INPUT ok=(\\d+) fail=(\\d+)").find(out)
+                    val hit = Regex(
+                        "DO_INPUT ok=(\\d+) fail=(\\d+)(?: enter_fail=(\\d+))?",
+                    ).find(out)
                     val ok = hit?.groupValues?.get(1)
-                    val fail = hit?.groupValues?.get(2)
+                    val fail = hit?.groupValues?.getOrNull(2)
+                    val enterFail = hit?.groupValues?.getOrNull(3)
                     val msg = when {
                         ok == null -> msgTested
+                        enterFail != null && enterFail != "0" && enterFail == ok ->
+                            msgInjectEnterFail.replace("%1\$s", ok)
                         fail == null || fail == "0" -> msgInjectOk.replace("%1\$s", ok)
                         else -> msgInjectPartial.replace("%1\$s", ok).replace("%2\$s", fail)
                     }
@@ -965,6 +985,37 @@ fun AutoInputScreen() {
             },
             confirmButton = {
                 TextButton(onClick = { showModePicker = false }) {
+                    Text(stringResource(R.string.autoinput_cancel))
+                }
+            },
+        )
+    }
+
+    if (showEnterPicker) {
+        AlertDialog(
+            onDismissRequest = { showEnterPicker = false },
+            title = { Text(stringResource(R.string.autoinput_enter_title)) },
+            text = {
+                Column(Modifier.fillMaxWidth()) {
+                    listOf(1, 2, 3).forEach { cnt ->
+                        ModeRow(
+                            title = stringResource(R.string.autoinput_times, cnt),
+                            desc = when (cnt) {
+                                1 -> stringResource(R.string.autoinput_enter_desc_one)
+                                2 -> stringResource(R.string.autoinput_enter_desc_two)
+                                else -> stringResource(R.string.autoinput_enter_desc_three)
+                            },
+                            selected = config.enterCount == cnt,
+                            onClick = {
+                                showEnterPicker = false
+                                scope.launch { persist(config.copy(enterCount = cnt)) }
+                            },
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showEnterPicker = false }) {
                     Text(stringResource(R.string.autoinput_cancel))
                 }
             },

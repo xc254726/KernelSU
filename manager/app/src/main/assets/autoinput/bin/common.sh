@@ -47,6 +47,21 @@ is_valid_pkg() {
     echo "$1" | grep -qE '^[A-Za-z][A-Za-z0-9_]*(\.[A-Za-z0-9_]+)+$'
 }
 
+# 兜底：从系统事件日志里取最近一次 resume 的包名（只读一次，不常驻）
+# 部分 ROM 在 root 域下 dumpsys 被拦或输出格式不认识，这时事件日志通常是可读的
+fg_from_events() {
+    local line pkg
+    line=$(logcat -b events -d -t 80 2>/dev/null \
+        | grep -E 'am_resume_activity|am_focused_activity|wm_on_resume_called' \
+        | tail -n 1)
+    [ -z "$line" ] && return 0
+    pkg=$(printf '%s' "$line" \
+        | sed -nE 's/.*[^A-Za-z0-9_.]([A-Za-z][A-Za-z0-9_]*(\.[A-Za-z0-9_]+)+)\/[^]]*.*/\1/p' \
+        | head -n 1)
+    is_valid_pkg "$pkg" || return 0
+    printf '%s' "$pkg"
+}
+
 # 获取当前前台应用包名
 get_foreground_pkg() {
     local pkg=""
@@ -59,6 +74,11 @@ get_foreground_pkg() {
         pkg=$(dumpsys window 2>/dev/null \
             | grep -m1 'mCurrentFocus' \
             | sed -E 's/.*u[0-9]+[[:space:]]+([A-Za-z0-9_.]+)\/[^ }]*.*/\1/')
+    fi
+
+    # 两种 dumpsys 都拿不到时，才回头去翻一次事件日志（正常情况下不会走到这里）
+    if ! is_valid_pkg "$pkg"; then
+        pkg=$(fg_from_events)
     fi
 
     if ! is_valid_pkg "$pkg"; then
@@ -296,13 +316,44 @@ send_line() {
     return 1
 }
 
-# 按一次回车
+# 按回车
+# 不同 ROM / 输入法对回车键反应不一致，这里依次试 KEYCODE_ENTER(66)、字面量 KEYCODE_ENTER、小键盘回车(160)
+# enter_count.txt 控制每行按几次（中文输入法常把第一次回车用来确认候选词，需要两次）
 send_enter() {
-    local bin
+    local idx="$1" bin out rc ok key i count
+
     bin=$(resolve_input)
-    [ -z "$bin" ] && return 1
-    $bin keyevent 66 </dev/null >>"$LOG" 2>&1
-    return $?
+    if [ -z "$bin" ]; then
+        log "enter[$idx] FAIL: 找不到 input 命令"
+        return 1
+    fi
+
+    count=$(get_conf enter_count.txt 1 | tr -dc '0-9')
+    [ -z "$count" ] && count=1
+    [ "$count" -lt 1 ] && count=1
+    [ "$count" -gt 3 ] && count=3
+
+    i=0
+    while [ "$i" -lt "$count" ]; do
+        i=$((i + 1))
+        ok=0
+        for key in 66 KEYCODE_ENTER 160; do
+            out=$($bin keyevent "$key" </dev/null 2>&1)
+            rc=$?
+            if [ "$rc" -eq 0 ] && ! printf '%s' "$out" | grep -qiE 'error|exception|failed|denial'; then
+                ok=1
+                log "enter[$idx] ok（第 $i/$count 次，key=$key）"
+                break
+            fi
+            log "enter[$idx] key=$key 失败 rc=$rc out=$(printf '%s' "$out" | tr -d '\r\n' | cut -c1-120)"
+        done
+        if [ "$ok" -ne 1 ]; then
+            log "enter[$idx] FAIL: 三种回车键都没能注入"
+            return 1
+        fi
+        [ "$i" -lt "$count" ] && sleep 0.4
+    done
+    return 0
 }
 
 # 逐条输入预置内容
@@ -321,7 +372,7 @@ do_input() {
         return 1
     fi
 
-    local total idx=0 line rc speed
+    local total idx=0 line rc speed okc=0 failc=0 efail=0
     speed=$(get_conf speed.txt 3 | tr -dc '0-9')
     [ -z "$speed" ] && speed=3
     [ "$speed" -gt 60 ] && speed=60
@@ -337,12 +388,16 @@ do_input() {
         [ -z "$line" ] && continue
 
         idx=$((idx + 1))
-        send_line "$line" "$idx"
-        sleep 0.2
-        send_enter
-        rc=$?
-        if [ "$rc" -ne 0 ]; then
-            log "input[$idx] 回车返回码=$rc"
+        if send_line "$line" "$idx"; then
+            okc=$((okc + 1))
+        else
+            failc=$((failc + 1))
+        fi
+        sleep 0.25
+        if send_enter "$idx"; then
+            :
+        else
+            efail=$((efail + 1))
         fi
 
         # 最后一条不再多等
@@ -355,7 +410,8 @@ do_input() {
     done
     exec 9<&-
 
-    log "input: 完成，已发送 $idx 条"
+    log "input: 完成，共 $idx 条（文字成功 $okc / 失败 $failc，回车失败 $efail）"
+    echo "DO_INPUT ok=$okc fail=$failc enter_fail=$efail total=$idx"
     [ "$idx" -gt 0 ]
 }
 

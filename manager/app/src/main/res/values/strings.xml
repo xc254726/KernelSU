@@ -437,6 +437,11 @@
     <string name="autoinput_speed_title">Interval per line</string>
     <string name="autoinput_interval_title">Minimum re-trigger gap</string>
     <string name="autoinput_seconds">%1$d s</string>
+    <string name="autoinput_times">%1$d time(s)</string>
+    <string name="autoinput_enter_title">Enter presses per line</string>
+    <string name="autoinput_enter_desc_one">Default, press Enter once per line</string>
+    <string name="autoinput_enter_desc_two">Chinese IMEs often use the first Enter to confirm candidates, pick two in that case</string>
+    <string name="autoinput_enter_desc_three">A few screens only react to a third Enter</string>
     <string name="autoinput_mode_title">Input mode</string>
     <string name="autoinput_mode_script">Feed script</string>
     <string name="autoinput_mode_screen">On-screen typing</string>
@@ -454,6 +459,7 @@
     <string name="autoinput_last_run">Last run</string>
     <string name="autoinput_inject_ok">Injected %1$s line(s), check the box</string>
     <string name="autoinput_inject_partial">%1$s line(s) injected, %2$s failed (see log)</string>
+    <string name="autoinput_inject_enter_fail">Typed %1$s line(s) but every Enter failed (see the Enter test in diagnostics)</string>
     <string name="autoinput_live_title">Live foreground</string>
     <string name="autoinput_live_unknown">Cannot read foreground app</string>
     <string name="autoinput_live_unknown_hint">Could not read the current app from the system, it will refresh shortly</string>
@@ -464,9 +470,9 @@
     <string name="autoinput_live_not_target">Not a monitored app, switch to a target app to trigger</string>
     <string name="autoinput_run_now">Run now</string>
     <string name="autoinput_run_now_done">Monitor restarted, check the run log in a few seconds</string>
-    <string name="autoinput_run_script">Run script now</string>
-    <string name="autoinput_run_script_summary">Run the script once right away, without waiting for a trigger</string>
-    <string name="autoinput_script_started">Script started, check the run log below</string>
+    <string name="autoinput_run_script">Run once now</string>
+    <string name="autoinput_run_script_summary">Run the whole flow once (script + input + Enter) without waiting for a trigger</string>
+    <string name="autoinput_script_started">Started, check the run log below</string>
     <string name="autoinput_script_no_path">No script path set yet</string>
     <string name="autoinput_script_not_found">Script file not found, check the path</string>
     <string name="autoinput_mode_script_tip_title">Feeding a script</string>
