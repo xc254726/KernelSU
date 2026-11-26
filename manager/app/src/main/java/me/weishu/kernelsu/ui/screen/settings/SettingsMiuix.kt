@@ -516,6 +516,19 @@ fun SettingPagerMiuix(
                             .padding(vertical = 12.dp)
                             .fillMaxWidth(),
                     ) {
+                        val autoInput = stringResource(id = R.string.autoinput_title)
+                        ArrowPreference(
+                            title = autoInput,
+                            startAction = {
+                                Icon(
+                                    Icons.Rounded.EditNote,
+                                    modifier = Modifier.padding(end = 6.dp),
+                                    contentDescription = autoInput,
+                                    tint = colorScheme.onBackground
+                                )
+                            },
+                            onClick = actions.onOpenAutoInput,
+                        )
                         ArrowPreference(
                             title = stringResource(id = R.string.send_log),
                             startAction = {

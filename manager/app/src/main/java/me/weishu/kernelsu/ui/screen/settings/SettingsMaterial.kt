@@ -419,6 +419,18 @@ fun SettingPagerMaterial(
                 content = listOf(
                     {
                         SegmentedListItem(
+                            onClick = actions.onOpenAutoInput,
+                            headlineContent = { Text(stringResource(id = R.string.autoinput_title)) },
+                            leadingContent = {
+                                Icon(
+                                    Icons.Filled.EditNote,
+                                    stringResource(id = R.string.autoinput_title)
+                                )
+                            },
+                        )
+                    },
+                    {
+                        SegmentedListItem(
                             onClick = { showBottomSheet = true },
                             headlineContent = { Text(stringResource(id = R.string.send_log)) },
                             leadingContent = {

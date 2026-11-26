@@ -95,5 +95,6 @@ data class SettingsScreenActions(
     val onSetAutoJailbreak: (Boolean) -> Unit,
     val onSetUseSoftReboot: (Boolean) -> Unit,
     val onOpenWebUi: (String, String) -> Unit,
+    val onOpenAutoInput: () -> Unit,
     val onOpenAbout: () -> Unit,
 )

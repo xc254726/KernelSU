@@ -1,1 +1,3 @@
 *.bat eol=crlf
+# 设备端执行的 sh 脚本必须保持 LF（CRLF 会导致 /system/bin/sh 解析失败）
+manager/app/src/main/assets/**/*.sh text eol=lf

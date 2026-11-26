@@ -79,6 +79,7 @@ fun SettingPager(
             )
         },
         onOpenAbout = { navigator.push(Route.About) },
+        onOpenAutoInput = { navigator.push(Route.AutoInput) },
     )
 
     when (LocalUiMode.current) {
