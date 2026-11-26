@@ -121,6 +121,9 @@ private const val BIN_DIR = "$CONF_DIR/bin"
 private const val BOOT_SCRIPT = "/data/adb/service.d/chen-auto-input.sh"
 private const val BUNDLED_VERSION = "21"
 
+// 调试卡片（实时前台 / 最近运行记录）默认隐藏；需要排查时置 true 恢复显示
+private val SHOW_DEBUG_CARDS = false
+
 // 后台脚本 = auto-input.zip 原模块原样（一个字不改），只负责落盘到 /data/adb/auto_input/bin
 private val SCRIPT_NAMES = listOf(
     "common.sh",
@@ -396,10 +399,14 @@ fun AutoInputScreen() {
         val st = parseStatus(rawStatus)
         status = st
         config = parseConfig(withContext(Dispatchers.IO) { runRoot(ksuCli, READ_CONFIG_SCRIPT) })
-        // 直接在页面上露出最近几行运行日志，省得每次都要点开日志对话框
-        lastRun = withContext(Dispatchers.IO) {
-            runRoot(ksuCli, "tail -n 8 $CONF_DIR/daemon.log 2>/dev/null")
-        }.trim()
+        // 最近运行记录调试卡片默认隐藏，隐藏时不再每轮拉日志
+        lastRun = if (SHOW_DEBUG_CARDS) {
+            withContext(Dispatchers.IO) {
+                runRoot(ksuCli, "tail -n 8 $CONF_DIR/daemon.log 2>/dev/null")
+            }.trim()
+        } else {
+            ""
+        }
         loaded = true
         return st
     }
@@ -558,7 +565,7 @@ fun AutoInputScreen() {
                 )
             }
 
-            item {
+            if (SHOW_DEBUG_CARDS) item {
                 val fg = status.foregroundPkg
                 val fgIsTarget = fg.isNotEmpty() && config.pkgs.contains(fg)
                 val dotColor = when {
@@ -621,7 +628,7 @@ fun AutoInputScreen() {
                 }
             }
 
-            if (lastRun.isNotEmpty()) {
+            if (SHOW_DEBUG_CARDS && lastRun.isNotEmpty()) {
                 item {
                     Box(
                         modifier = Modifier
