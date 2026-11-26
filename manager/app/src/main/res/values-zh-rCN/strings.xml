@@ -446,6 +446,16 @@
     <string name="autoinput_last_run">最近运行记录</string>
     <string name="autoinput_inject_ok">已注入 %1$s 行，看输入框</string>
     <string name="autoinput_inject_partial">注入 %1$s 行成功、%2$s 行失败（见日志）</string>
+    <string name="autoinput_live_title">实时前台</string>
+    <string name="autoinput_live_unknown">读不到前台应用</string>
+    <string name="autoinput_live_unknown_hint">没能从系统里读出现在是哪个应用，稍后自动刷新再试</string>
+    <string name="autoinput_live_not_installed">脚本还没装到设备上</string>
+    <string name="autoinput_live_no_app">还没选监听应用</string>
+    <string name="autoinput_live_target_focused">是监听目标，输入框已聚焦，会自动填入</string>
+    <string name="autoinput_live_target_nofocus">是监听目标，但现在没有聚焦的输入框，先点一下要填的那个框</string>
+    <string name="autoinput_live_not_target">不是监听目标，切到目标应用才会触发</string>
+    <string name="autoinput_run_now">立即执行</string>
+    <string name="autoinput_run_now_done">已重启监听，稍等几秒看运行记录</string>
     <string name="autoinput_mode_script_tip_title">当前是脚本喂入</string>
     <string name="autoinput_mode_script_tip_desc">内容只会写进脚本的标准输入，不会打到屏幕上。要在应用里自动填字，请把输入方式改成屏幕输入</string>
     <string name="autoinput_diag_title">自检</string>

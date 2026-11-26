@@ -47,25 +47,72 @@ is_valid_pkg() {
     echo "$1" | grep -qE '^[A-Za-z][A-Za-z0-9_]*(\.[A-Za-z0-9_]+)+$'
 }
 
+# 从 dumpsys 的一行里抠包名
+# 兼容 ActivityRecord{1a2b u0 com.a/.B t7} / Window{9c8d u0 com.a/com.a.B}
+extract_pkg() {
+    printf '%s' "$1" | sed -nE \
+        's/.*[[:space:]]u[0-9]+[[:space:]]+([A-Za-z][A-Za-z0-9_.]*)\/[^ ]*.*/\1/p' \
+        | head -n 1
+}
+
+# dumpsys 包一层超时，避免系统卡住时把守护进程一起拖死
+sysdump() {
+    if command -v timeout >/dev/null 2>&1; then
+        timeout 8 "$@" 2>/dev/null
+    else
+        "$@" 2>/dev/null
+    fi
+}
+
 # 获取当前前台应用包名
+# 不同 ROM 的 dumpsys 输出差异很大，这里逐级兜底，任何一级拿到合法包名就返回
+# 注意：秒级轮询，同一份 dumpsys 输出只取一次，避免重复开销
 get_foreground_pkg() {
-    local pkg=""
+    local pkg="" line dump win
 
-    pkg=$(dumpsys activity activities 2>/dev/null \
-        | grep -m1 'topResumedActivity' \
-        | sed -E 's/.*u[0-9]+[[:space:]]+([A-Za-z0-9_.]+)\/[^ ]*.*/\1/')
+    dump=$(sysdump dumpsys activity activities)
 
+    # 1) 顶层 resumed activity
+    line=$(printf '%s' "$dump" | grep -m1 'topResumedActivity=')
+    pkg=$(extract_pkg "$line")
+
+    # 2) 同一份输出里的 mResumedActivity
     if ! is_valid_pkg "$pkg"; then
-        pkg=$(dumpsys window 2>/dev/null \
-            | grep -m1 'mCurrentFocus' \
-            | sed -E 's/.*u[0-9]+[[:space:]]+([A-Za-z0-9_.]+)\/[^ }]*.*/\1/')
+        line=$(printf '%s' "$dump" | grep -m1 'mResumedActivity:')
+        pkg=$(extract_pkg "$line")
     fi
 
+    # 3) 焦点窗口 / 焦点应用（同一次 dumpsys window）
     if ! is_valid_pkg "$pkg"; then
-        pkg=""
+        win=$(sysdump dumpsys window)
+        line=$(printf '%s' "$win" | grep -m1 'mCurrentFocus=')
+        pkg=$(extract_pkg "$line")
+        if ! is_valid_pkg "$pkg"; then
+            line=$(printf '%s' "$win" | grep -m1 'mFocusedApp=')
+            pkg=$(extract_pkg "$line")
+        fi
     fi
 
+    # 4) 最顶层 activity（老 ROM / 精简 dumpsys）
+    if ! is_valid_pkg "$pkg"; then
+        line=$(sysdump dumpsys activity top | grep -m1 'ACTIVITY ')
+        pkg=$(printf '%s' "$line" \
+            | sed -nE 's/^[[:space:]]*ACTIVITY[[:space:]]+([A-Za-z][A-Za-z0-9_.]*)\/.*/\1/p' \
+            | head -n 1)
+    fi
+
+    is_valid_pkg "$pkg" || pkg=""
     printf '%s' "$pkg"
+}
+
+# 当前是否有输入框获得焦点（没有焦点时 input text 不会落字）
+input_focused() {
+    local s
+    s=$(sysdump dumpsys input_method | grep -m1 'mInputShown=')
+    case "$s" in
+        *mInputShown=true*) return 0 ;;
+        *) return 1 ;;
+    esac
 }
 
 # 判断包名是否在监听列表中

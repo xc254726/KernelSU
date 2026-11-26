@@ -119,7 +119,7 @@ import me.weishu.kernelsu.ui.util.showReplacingSnackbar
 private const val CONF_DIR = "/data/adb/auto_input"
 private const val BIN_DIR = "$CONF_DIR/bin"
 private const val BOOT_SCRIPT = "/data/adb/service.d/chen-auto-input.sh"
-private const val BUNDLED_VERSION = "3"
+private const val BUNDLED_VERSION = "4"
 
 private val SCRIPT_NAMES = listOf(
     "common.sh",
@@ -129,6 +129,7 @@ private val SCRIPT_NAMES = listOf(
     "status.sh",
     "diag.sh",
     "test_input.sh",
+    "probe.sh",
 )
 
 private const val STATUS_SCRIPT = """
@@ -142,6 +143,7 @@ echo PID=${'$'}P
 S=${'$'}(pgrep -f 'auto_input/bin/[s]upervisor\.sh' 2>/dev/null | head -n1)
 [ -z "${'$'}S" ] && S=${'$'}(ps -A 2>/dev/null | grep 'auto_input/bin/[s]upervisor\.sh' | grep -v grep | awk '{print ${'$'}2}' | head -n1)
 echo SPID=${'$'}S
+sh /data/adb/auto_input/bin/probe.sh 2>/dev/null
 """
 
 private const val READ_CONFIG_SCRIPT = """
@@ -189,6 +191,9 @@ private data class AutoInputStatus(
     val enabled: Boolean = true,
     val daemonRunning: Boolean = false,
     val supervisorRunning: Boolean = false,
+    val foregroundPkg: String = "",
+    val inputFocused: Boolean = false,
+    val probeRaw: String = "",
 )
 
 private data class AutoInputConfig(
@@ -296,6 +301,11 @@ private fun parseStatus(raw: String): AutoInputStatus = AutoInputStatus(
         ?.removePrefix("PID=")?.trim()?.isNotEmpty() == true,
     supervisorRunning = raw.lineSequence().firstOrNull { it.startsWith("SPID=") }
         ?.removePrefix("SPID=")?.trim()?.isNotEmpty() == true,
+    foregroundPkg = raw.lineSequence().firstOrNull { it.startsWith("FG=") }
+        ?.removePrefix("FG=")?.trim().orEmpty(),
+    inputFocused = raw.contains("FOCUS=1"),
+    probeRaw = raw.lineSequence().firstOrNull { it.startsWith("RAW=") }
+        ?.removePrefix("RAW=")?.trim().orEmpty(),
 )
 
 private fun parseConfig(raw: String): AutoInputConfig {
@@ -373,6 +383,7 @@ fun AutoInputScreen() {
     val msgTested = stringResource(R.string.autoinput_test_done)
     val msgInjectOk = stringResource(R.string.autoinput_inject_ok)
     val msgInjectPartial = stringResource(R.string.autoinput_inject_partial)
+    val msgRunNow = stringResource(R.string.autoinput_run_now_done)
 
     suspend fun refresh() {
         val rawStatus = withContext(Dispatchers.IO) { runRoot(ksuCli, STATUS_SCRIPT) }
@@ -471,6 +482,18 @@ fun AutoInputScreen() {
         }
     }
 
+    // 立即执行一次：重启守护进程，新进程没有"已触发"记忆，看到目标在前台会马上跑一遍
+    val runNow: () -> Unit = {
+        scope.launch {
+            busy = true
+            withContext(Dispatchers.IO) { runRoot(ksuCli, "sh ${BIN_DIR}/restart.sh >/dev/null 2>&1") }
+            delay(2500)
+            busy = false
+            refresh()
+            snackBarHost.showReplacingSnackbar(msgRunNow)
+        }
+    }
+
     ScaffoldLike(
         title = stringResource(R.string.autoinput_title),
         scrollBehavior = scrollBehavior,
@@ -493,6 +516,80 @@ fun AutoInputScreen() {
                     enabled = loaded && !busy,
                     onCheckedChange = toggle,
                 )
+            }
+
+            item {
+                val fg = status.foregroundPkg
+                val fgIsTarget = fg.isNotEmpty() && config.pkgs.contains(fg)
+                val dotColor = when {
+                    !loaded -> MaterialTheme.colorScheme.outline
+                    !status.installed || !status.enabled -> MaterialTheme.colorScheme.outline
+                    fgIsTarget -> Color(0xFF7CE3AE)
+                    else -> Color(0xFFFFC46B)
+                }
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 6.dp)
+                        .clip(RoundedCornerShape(18.dp))
+                        .background(MaterialTheme.colorScheme.surfaceContainer)
+                        .padding(start = 14.dp, end = 6.dp, top = 10.dp, bottom = 12.dp),
+                ) {
+                    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Box(
+                                Modifier
+                                    .size(8.dp)
+                                    .clip(CircleShape)
+                                    .background(dotColor),
+                            )
+                            Spacer(Modifier.width(8.dp))
+                            Text(
+                                text = stringResource(R.string.autoinput_live_title),
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.primary,
+                            )
+                            Spacer(Modifier.weight(1f))
+                            TextButton(
+                                onClick = runNow,
+                                enabled = loaded && !busy && status.installed,
+                            ) {
+                                Text(stringResource(R.string.autoinput_run_now))
+                            }
+                        }
+                        Text(
+                            text = fg.ifEmpty { stringResource(R.string.autoinput_live_unknown) },
+                            fontFamily = FontFamily.Monospace,
+                            fontSize = 11.sp,
+                            color = MaterialTheme.colorScheme.onSurface,
+                        )
+                        if (fg.isEmpty() && status.probeRaw.isNotEmpty()) {
+                            Text(
+                                text = status.probeRaw,
+                                fontFamily = FontFamily.Monospace,
+                                fontSize = 9.sp,
+                                lineHeight = 12.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 3,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+                        Text(
+                            text = when {
+                                !status.installed -> stringResource(R.string.autoinput_live_not_installed)
+                                config.pkgs.isEmpty() -> stringResource(R.string.autoinput_live_no_app)
+                                fg.isEmpty() -> stringResource(R.string.autoinput_live_unknown_hint)
+                                fgIsTarget && status.inputFocused ->
+                                    stringResource(R.string.autoinput_live_target_focused)
+                                fgIsTarget -> stringResource(R.string.autoinput_live_target_nofocus)
+                                else -> stringResource(R.string.autoinput_live_not_target)
+                            },
+                            fontSize = 10.sp,
+                            lineHeight = 14.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
             }
 
             if (lastRun.isNotEmpty()) {

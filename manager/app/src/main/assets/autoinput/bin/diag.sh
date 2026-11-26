@@ -10,6 +10,17 @@ echo "uid       : $(id -u 2>/dev/null)"
 echo "selinux   : $(getenforce 2>/dev/null)"
 echo "input命令 : $(resolve_input)"
 echo "当前前台  : $(get_foreground_pkg)"
+FG=$(get_foreground_pkg)
+if [ -n "$FG" ] && is_target "$FG"; then
+    echo "是否目标  : 是（会触发）"
+else
+    echo "是否目标  : 否（不在监听列表里）"
+fi
+if input_focused; then
+    echo "输入框焦点: 有（可以注入）"
+else
+    echo "输入框焦点: 无（先点一下目标输入框再试）"
+fi
 
 echo "---- 配置 ----"
 if [ "$(get_conf input_mode.txt screen)" = "screen" ]; then

@@ -92,6 +92,9 @@ run_flow() {
         fi
     fi
 
+    if ! input_focused; then
+        log "!! 当前没有聚焦的输入框，input 注入可能不落字（先点一下目标输入框）"
+    fi
     log "-- 开始逐条输入（第 1 条立即输入）"
     do_input
 

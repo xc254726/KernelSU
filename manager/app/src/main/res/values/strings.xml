@@ -454,6 +454,16 @@
     <string name="autoinput_last_run">Last run</string>
     <string name="autoinput_inject_ok">Injected %1$s line(s), check the box</string>
     <string name="autoinput_inject_partial">%1$s line(s) injected, %2$s failed (see log)</string>
+    <string name="autoinput_live_title">Live foreground</string>
+    <string name="autoinput_live_unknown">Cannot read foreground app</string>
+    <string name="autoinput_live_unknown_hint">Could not read the current app from the system, it will refresh shortly</string>
+    <string name="autoinput_live_not_installed">Scripts are not installed yet</string>
+    <string name="autoinput_live_no_app">No monitored app selected</string>
+    <string name="autoinput_live_target_focused">Monitored app, text field focused, will type now</string>
+    <string name="autoinput_live_target_nofocus">Monitored app, but no focused text field. Tap the target field first</string>
+    <string name="autoinput_live_not_target">Not a monitored app, switch to a target app to trigger</string>
+    <string name="autoinput_run_now">Run now</string>
+    <string name="autoinput_run_now_done">Monitor restarted, check the run log in a few seconds</string>
     <string name="autoinput_mode_script_tip_title">Feeding a script</string>
     <string name="autoinput_mode_script_tip_desc">Lines go to the script stdin only, nothing is typed on screen. Switch to on-screen typing to fill text fields.</string>
     <string name="autoinput_diag_title">Self-check</string>
