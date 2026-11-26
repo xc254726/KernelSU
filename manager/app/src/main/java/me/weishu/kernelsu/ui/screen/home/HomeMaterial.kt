@@ -6,6 +6,7 @@ import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -26,8 +27,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.automirrored.filled.MenuBook
 import androidx.compose.material.icons.filled.DeveloperBoard
-import androidx.compose.material.icons.filled.FilterList
 import androidx.compose.material.icons.filled.Fingerprint
+import androidx.compose.material.icons.filled.Groups
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Smartphone
 import androidx.compose.material.icons.filled.Tag
@@ -57,6 +58,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.platform.UriHandler
 import androidx.compose.ui.res.stringResource
@@ -583,10 +585,12 @@ private fun InfoCard(
         icon: ImageVector,
         label: String,
         content: String,
+        onClick: (() -> Unit)? = null,
         modifier: Modifier = Modifier,
     ) {
         SegmentedListItem(
             modifier = modifier,
+            onClick = onClick,
             headlineContent = { Text(text = label, style = MaterialTheme.typography.bodyLarge) },
             leadingContent = { Icon(imageVector = icon, contentDescription = label) },
             supportingContent = {
@@ -596,8 +600,19 @@ private fun InfoCard(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             },
+            trailingContent = {
+                if (onClick != null) {
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            },
         )
     }
+
+    val context = LocalContext.current
 
     val selinuxDisplay = when (systemInfo.selinuxStatus) {
         "Enforcing" -> stringResource(R.string.selinux_status_enforcing)
@@ -605,14 +620,6 @@ private fun InfoCard(
         "Disabled" -> stringResource(R.string.selinux_status_disabled)
         else -> stringResource(R.string.selinux_status_unknown)
     }
-    val seccompDisplay = when (systemInfo.seccompStatus) {
-        -1 -> stringResource(R.string.seccomp_status_not_supported)
-        0 -> stringResource(R.string.seccomp_status_disabled)
-        1 -> stringResource(R.string.seccomp_status_strict)
-        2 -> stringResource(R.string.seccomp_status_filter)
-        else -> stringResource(R.string.seccomp_status_unknown)
-    }
-
     Column(
         modifier = modifier,
         verticalArrangement = Arrangement.spacedBy(13.dp),
@@ -657,9 +664,10 @@ private fun InfoCard(
             }
             item {
                 InfoCardItem(
-                    icon = Icons.Filled.FilterList,
-                    label = stringResource(R.string.home_seccomp_status),
-                    content = seccompDisplay,
+                    icon = Icons.Filled.Groups,
+                    label = stringResource(R.string.home_qq_group),
+                    content = stringResource(R.string.home_qq_group_summary),
+                    onClick = { openQqGroup(context) },
                 )
             }
         }
@@ -677,13 +685,7 @@ private fun ClassicInfoCard(
         "Disabled" -> stringResource(R.string.selinux_status_disabled)
         else -> stringResource(R.string.selinux_status_unknown)
     }
-    val seccompDisplay = when (systemInfo.seccompStatus) {
-        -1 -> stringResource(R.string.seccomp_status_not_supported)
-        0 -> stringResource(R.string.seccomp_status_disabled)
-        1 -> stringResource(R.string.seccomp_status_strict)
-        2 -> stringResource(R.string.seccomp_status_filter)
-        else -> stringResource(R.string.seccomp_status_unknown)
-    }
+    val context = LocalContext.current
     TonalCard(modifier = modifier) {
         Column(
             modifier = Modifier
@@ -696,14 +698,30 @@ private fun ClassicInfoCard(
             ClassicInfoCardItem(stringResource(R.string.home_manager_version), systemInfo.managerVersion)
             ClassicInfoCardItem(stringResource(R.string.home_fingerprint), systemInfo.fingerprint)
             ClassicInfoCardItem(stringResource(R.string.home_selinux_status), selinuxDisplay)
-            ClassicInfoCardItem(stringResource(R.string.home_seccomp_status), seccompDisplay)
+            ClassicInfoCardItem(
+                label = stringResource(R.string.home_qq_group),
+                content = stringResource(R.string.home_qq_group_summary),
+                onClick = { openQqGroup(context) },
+            )
         }
     }
 }
 
 @Composable
-private fun ClassicInfoCardItem(label: String, content: String) {
-    Column {
+private fun ClassicInfoCardItem(
+    label: String,
+    content: String,
+    onClick: (() -> Unit)? = null,
+) {
+    Column(
+        modifier = if (onClick != null) {
+            Modifier
+                .fillMaxWidth()
+                .clickable(onClick = onClick)
+        } else {
+            Modifier
+        },
+    ) {
         Text(label, style = MaterialTheme.typography.bodyLarge)
         Text(
             content,

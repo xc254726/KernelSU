@@ -6,6 +6,7 @@ import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -30,10 +31,11 @@ import androidx.compose.foundation.layout.systemBars
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.automirrored.filled.MenuBook
 import androidx.compose.material.icons.filled.DeveloperBoard
-import androidx.compose.material.icons.filled.FilterList
 import androidx.compose.material.icons.filled.Fingerprint
+import androidx.compose.material.icons.filled.Groups
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Smartphone
 import androidx.compose.material.icons.filled.Tag
@@ -47,6 +49,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.platform.UriHandler
 import androidx.compose.ui.res.stringResource
@@ -481,12 +484,14 @@ private fun InfoCard(
         icon: ImageVector,
         title: String,
         content: String,
-        bottomPadding: Dp = 24.dp
+        bottomPadding: Dp = 24.dp,
+        onClick: (() -> Unit)? = null,
     ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(bottom = bottomPadding),
+                .padding(bottom = bottomPadding)
+                .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Icon(
@@ -497,7 +502,7 @@ private fun InfoCard(
                     .size(24.dp),
                 tint = colorScheme.onSurface,
             )
-            Column {
+            Column(Modifier.weight(1f)) {
                 Text(
                     text = title,
                     fontSize = MiuixTheme.textStyles.headline1.fontSize,
@@ -511,6 +516,16 @@ private fun InfoCard(
                     modifier = Modifier.padding(top = 2.dp),
                 )
             }
+            if (onClick != null) {
+                Icon(
+                    imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                    contentDescription = null,
+                    modifier = Modifier
+                        .padding(start = 8.dp)
+                        .size(20.dp),
+                    tint = colorScheme.onSurfaceVariantSummary,
+                )
+            }
         }
     }
 
@@ -520,13 +535,7 @@ private fun InfoCard(
         "Disabled" -> stringResource(R.string.selinux_status_disabled)
         else -> stringResource(R.string.selinux_status_unknown)
     }
-    val seccompDisplay = when (systemInfo.seccompStatus) {
-        -1 -> stringResource(R.string.seccomp_status_not_supported)
-        0 -> stringResource(R.string.seccomp_status_disabled)
-        1 -> stringResource(R.string.seccomp_status_strict)
-        2 -> stringResource(R.string.seccomp_status_filter)
-        else -> stringResource(R.string.seccomp_status_unknown)
-    }
+    val context = LocalContext.current
 
     Column(
         modifier = modifier,
@@ -565,10 +574,11 @@ private fun InfoCard(
                     content = selinuxDisplay,
                 )
                 InfoText(
-                    icon = Icons.Filled.FilterList,
-                    title = stringResource(R.string.home_seccomp_status),
-                    content = seccompDisplay,
+                    icon = Icons.Filled.Groups,
+                    title = stringResource(R.string.home_qq_group),
+                    content = stringResource(R.string.home_qq_group_summary),
                     bottomPadding = 0.dp,
+                    onClick = { openQqGroup(context) },
                 )
             }
         }
