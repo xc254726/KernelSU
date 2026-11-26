@@ -21,6 +21,8 @@ rm -f "$CONF/.script_release" "$CONF/.script_child" "$CONF/.script_hold_pid" 2>/
 if supervisor_alive "$MODDIR"; then
     log "restart.sh: daemon killed, watchdog will respawn"
 else
+    AUTOINPUT_SOURCE=app
+    export AUTOINPUT_SOURCE
     start_supervisor "$MODDIR"
     log "restart.sh: watchdog was down, started"
 fi

@@ -481,6 +481,7 @@
     <string name="autoinput_diag_summary">Check input command and foreground detection</string>
     <string name="autoinput_probe_title">Script check</string>
     <string name="autoinput_probe_summary">Inspect the script itself: line endings, interpreter, decompress code</string>
+    <string name="autoinput_source_app_hint">The service was started by the manager, so swiping it away stops monitoring. Reboot once to switch to boot-time autostart, then it no longer depends on the manager.</string>
     <string name="autoinput_remove_title">Remove monitor</string>
     <string name="autoinput_remove_summary">Stop the daemon and delete scripts and settings</string>
     <string name="autoinput_remove_confirm">This stops the daemon and deletes the boot script and all settings. Continue?</string>

@@ -120,7 +120,7 @@ import me.weishu.kernelsu.ui.util.showReplacingSnackbar
 private const val CONF_DIR = "/data/adb/auto_input"
 private const val BIN_DIR = "$CONF_DIR/bin"
 private const val BOOT_SCRIPT = "/data/adb/service.d/chen-auto-input.sh"
-private const val BUNDLED_VERSION = "9"
+private const val BUNDLED_VERSION = "10"
 
 private val SCRIPT_NAMES = listOf(
     "common.sh",
@@ -146,6 +146,7 @@ echo PID=${'$'}P
 S=${'$'}(pgrep -f 'auto_input/bin/[s]upervisor\.sh' 2>/dev/null | head -n1)
 [ -z "${'$'}S" ] && S=${'$'}(ps -A 2>/dev/null | grep 'auto_input/bin/[s]upervisor\.sh' | grep -v grep | awk '{print ${'$'}2}' | head -n1)
 echo SPID=${'$'}S
+echo SRC=${'$'}(cat ${'$'}CONF/.start_source 2>/dev/null)
 sh /data/adb/auto_input/bin/probe.sh 2>/dev/null
 """
 
@@ -211,6 +212,8 @@ private data class AutoInputStatus(
     val foregroundPkg: String = "",
     val inputFocused: Boolean = false,
     val probeRaw: String = "",
+    /** 守护进程是谁拉起来的：boot=开机自启（划掉管理器也不受影响），app=管理器 */
+    val startSource: String = "",
 )
 
 private data class AutoInputConfig(
@@ -325,6 +328,8 @@ private fun parseStatus(raw: String): AutoInputStatus = AutoInputStatus(
     inputFocused = raw.contains("FOCUS=1"),
     probeRaw = raw.lineSequence().firstOrNull { it.startsWith("RAW=") }
         ?.removePrefix("RAW=")?.trim().orEmpty(),
+    startSource = raw.lineSequence().firstOrNull { it.startsWith("SRC=") }
+        ?.removePrefix("SRC=")?.trim().orEmpty(),
 )
 
 private fun parseConfig(raw: String): AutoInputConfig {
@@ -575,6 +580,28 @@ fun AutoInputScreen() {
                     enabled = loaded && !busy,
                     onCheckedChange = toggle,
                 )
+            }
+
+            // 守护进程是管理器拉起来的：管理器一被划掉就会跟着停，提醒用户重启一次手机
+            if (loaded && status.installed && status.enabled &&
+                status.daemonRunning && status.startSource != "boot"
+            ) {
+                item {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 2.dp)
+                            .clip(RoundedCornerShape(14.dp))
+                            .background(MaterialTheme.colorScheme.secondaryContainer)
+                            .padding(horizontal = 14.dp, vertical = 10.dp),
+                    ) {
+                        Text(
+                            text = stringResource(R.string.autoinput_source_app_hint),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSecondaryContainer,
+                        )
+                    }
+                }
             }
 
             item {

@@ -31,6 +31,8 @@ else
 fi
 
 echo "$$" > "$MODDIR/run/daemon.pid" 2>/dev/null
+trap '' HUP
+detach_proc $$
 log "daemon up (pid=$$)"
 log "  开关=$(get_conf status 1) 模式=$(get_conf input_mode.txt script) 等待=$(get_conf delay.txt 5)s 回车=$(get_conf enter_count.txt 1)"
 if [ -s "$CONF/pkg.txt" ]; then
@@ -114,7 +116,8 @@ cleanup() {
     [ "$(cat "$LOCK_DIR/pid" 2>/dev/null | tr -d '\r\n')" = "$$" ] && rm -rf "$LOCK_DIR" 2>/dev/null
     log "daemon down (pid=$$)"
 }
-trap cleanup INT TERM HUP
+trap cleanup INT TERM
+trap '' HUP
 
 while true; do
     if [ "$(get_conf status 1)" != "1" ]; then

@@ -473,6 +473,7 @@
     <string name="autoinput_diag_summary">检查注入命令与前台识别是否正常</string>
     <string name="autoinput_probe_title">脚本体检</string>
     <string name="autoinput_probe_summary">检查脚本本身：换行、解释器、解压相关代码</string>
+    <string name="autoinput_source_app_hint">当前守护进程由管理器启动，划掉管理器会一起停。重启一次手机后会转为开机自启，之后划掉管理器也不影响。</string>
     <string name="autoinput_remove_title">移除监听</string>
     <string name="autoinput_remove_summary">停止守护进程并删除脚本与配置</string>
     <string name="autoinput_remove_confirm">将停止守护进程、删除开机脚本与全部配置。确定移除？</string>

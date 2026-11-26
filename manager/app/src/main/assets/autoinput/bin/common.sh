@@ -586,6 +586,26 @@ supervisor_alive() {
     pid_matches "$(read_pid "$1/run/supervisor.pid")" supervisor.sh
 }
 
+# 让守护进程尽量脱离启动它的那个进程（管理器 / root shell）
+# 管理器被划掉时，AMS 会按 cgroup 清理该 App 名下的全部进程，
+# setsid 只换了会话，换不掉 cgroup，所以这里额外做两件事：
+#   1) oom_score_adj 拉到最低，避免被 LMK 优先回收
+#   2) 尝试把进程迁到 init 所在的 cgroup（失败也无妨）
+detach_proc() {
+    local p="${1:-$$}" line path
+
+    echo -1000 > "/proc/$p/oom_score_adj" 2>/dev/null
+
+    [ -r /proc/1/cgroup ] || return 0
+    while IFS= read -r line; do
+        path="${line##*:}"
+        [ -z "$path" ] && continue
+        [ -d "/sys/fs/cgroup$path" ] || continue
+        echo "$p" > "/sys/fs/cgroup$path/cgroup.procs" 2>/dev/null
+    done < /proc/1/cgroup
+    return 0
+}
+
 # 拉起看门狗（单例；detach，开机/父 shell 退出都不影响）
 start_supervisor() {
     local moddir="$1" rundir="$1/run"
@@ -598,7 +618,7 @@ start_supervisor() {
     rm -f "$rundir/supervisor.pid" 2>/dev/null
 
     if command -v setsid >/dev/null 2>&1; then
-        setsid sh "$moddir/bin/supervisor.sh" </dev/null >/dev/null 2>&1 &
+        setsid nohup sh "$moddir/bin/supervisor.sh" </dev/null >/dev/null 2>&1 &
     else
         nohup sh "$moddir/bin/supervisor.sh" </dev/null >/dev/null 2>&1 &
     fi
