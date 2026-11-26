@@ -451,6 +451,11 @@
     <string name="autoinput_test_title">Run once</string>
     <string name="autoinput_test_summary">Execute once with the current settings (focus a text field first)</string>
     <string name="autoinput_test_inject">Test here</string>
+    <string name="autoinput_last_run">Last run</string>
+    <string name="autoinput_inject_ok">Injected %1$s line(s), check the box</string>
+    <string name="autoinput_inject_partial">%1$s line(s) injected, %2$s failed (see log)</string>
+    <string name="autoinput_mode_script_tip_title">Feeding a script</string>
+    <string name="autoinput_mode_script_tip_desc">Lines go to the script stdin only, nothing is typed on screen. Switch to on-screen typing to fill text fields.</string>
     <string name="autoinput_diag_title">Self-check</string>
     <string name="autoinput_diag_summary">Check input command and foreground detection</string>
     <string name="autoinput_remove_title">Remove monitor</string>

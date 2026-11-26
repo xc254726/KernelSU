@@ -119,7 +119,7 @@ import me.weishu.kernelsu.ui.util.showReplacingSnackbar
 private const val CONF_DIR = "/data/adb/auto_input"
 private const val BIN_DIR = "$CONF_DIR/bin"
 private const val BOOT_SCRIPT = "/data/adb/service.d/chen-auto-input.sh"
-private const val BUNDLED_VERSION = "2"
+private const val BUNDLED_VERSION = "3"
 
 private val SCRIPT_NAMES = listOf(
     "common.sh",
@@ -363,6 +363,7 @@ fun AutoInputScreen() {
     var showDiag by remember { mutableStateOf(false) }
     var numberKind by remember { mutableStateOf<NumberKind?>(null) }
     var logText by remember { mutableStateOf("") }
+    var lastRun by remember { mutableStateOf("") }
     var diagText by remember { mutableStateOf("") }
 
     val msgSaved = stringResource(R.string.autoinput_saved)
@@ -370,11 +371,17 @@ fun AutoInputScreen() {
     val msgStopped = stringResource(R.string.autoinput_stopped)
     val msgRemoved = stringResource(R.string.autoinput_removed)
     val msgTested = stringResource(R.string.autoinput_test_done)
+    val msgInjectOk = stringResource(R.string.autoinput_inject_ok)
+    val msgInjectPartial = stringResource(R.string.autoinput_inject_partial)
 
     suspend fun refresh() {
         val rawStatus = withContext(Dispatchers.IO) { runRoot(ksuCli, STATUS_SCRIPT) }
         status = parseStatus(rawStatus)
         config = parseConfig(withContext(Dispatchers.IO) { runRoot(ksuCli, READ_CONFIG_SCRIPT) })
+        // 直接在页面上露出最近几行运行日志，省得每次都要点开日志对话框
+        lastRun = withContext(Dispatchers.IO) {
+            runRoot(ksuCli, "tail -n 8 $CONF_DIR/daemon.log 2>/dev/null")
+        }.trim()
         loaded = true
     }
 
@@ -488,6 +495,38 @@ fun AutoInputScreen() {
                 )
             }
 
+            if (lastRun.isNotEmpty()) {
+                item {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 6.dp)
+                            .clip(RoundedCornerShape(18.dp))
+                            .background(MaterialTheme.colorScheme.surfaceContainer)
+                            .clickable { showLog = true }
+                            .padding(horizontal = 14.dp, vertical = 12.dp),
+                    ) {
+                        Column {
+                            Text(
+                                text = stringResource(R.string.autoinput_last_run),
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.primary,
+                            )
+                            Spacer(Modifier.height(6.dp))
+                            Text(
+                                text = lastRun,
+                                fontFamily = FontFamily.Monospace,
+                                fontSize = 10.sp,
+                                lineHeight = 14.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 6,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+                    }
+                }
+            }
+
             item {
                 SegmentedColumn(title = stringResource(R.string.autoinput_apps_group)) {
                     if (config.pkgs.isEmpty()) {
@@ -559,6 +598,16 @@ fun AutoInputScreen() {
                             },
                             onClick = { showScriptEditor = true },
                         )
+                    }
+                    if (config.mode != "screen") {
+                        item {
+                            SettingsBaseWidget(
+                                icon = null,
+                                iconPlaceholder = false,
+                                title = stringResource(R.string.autoinput_mode_script_tip_title),
+                                description = stringResource(R.string.autoinput_mode_script_tip_desc),
+                            )
+                        }
                     }
                 }
             }
@@ -716,13 +765,21 @@ fun AutoInputScreen() {
             },
             onTest = { text ->
                 scope.launch {
-                    withContext(Dispatchers.IO) {
+                    val out = withContext(Dispatchers.IO) {
                         // 先把待测内容写进 input.txt，再由脚本原样走一遍屏幕注入
                         writeFile(ksuCli, "$CONF_DIR/input.txt", text)
                         runRoot(ksuCli, TEST_INJECT_SCRIPT)
                     }
                     config = config.copy(input = text)
-                    snackBarHost.showReplacingSnackbar(msgTested)
+                    val hit = Regex("DO_INPUT ok=(\\d+) fail=(\\d+)").find(out)
+                    val ok = hit?.groupValues?.get(1)
+                    val fail = hit?.groupValues?.get(2)
+                    val msg = when {
+                        ok == null -> msgTested
+                        fail == null || fail == "0" -> msgInjectOk.replace("%1\$s", ok)
+                        else -> msgInjectPartial.replace("%1\$s", ok).replace("%2\$s", fail)
+                    }
+                    snackBarHost.showReplacingSnackbar(msg)
                 }
             },
         )

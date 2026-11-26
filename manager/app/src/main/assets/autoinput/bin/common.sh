@@ -112,17 +112,33 @@ get_script_path() {
     printf '%s' "$sp"
 }
 
+# 返回一个可以直接被 sh 执行的脚本路径
+# 电脑上编辑过的脚本常带 CRLF，直接 sh 会报 "$'\r': command not found"，这里先转成 LF 副本
+script_runner() {
+    local sp="$1" runner="$CONF/.run_script.sh"
+    if grep -q "$(printf '\r')" "$sp" 2>/dev/null; then
+        if tr -d '\r' < "$sp" > "$runner" 2>/dev/null && [ -s "$runner" ]; then
+            chmod 700 "$runner" 2>/dev/null
+            log "检测到 CRLF 换行，已转换为 LF 副本执行"
+            printf '%s' "$runner"
+            return 0
+        fi
+    fi
+    printf '%s' "$sp"
+}
+
 # 执行用户指定的 sh 脚本（同步：等脚本整段跑完才返回）
 run_user_script() {
-    local sp
+    local sp runner
     sp=$(get_script_path)
     if [ -z "$sp" ]; then
         log "no script path configured, skip"
         return 0
     fi
     if [ -f "$sp" ]; then
+        runner=$(script_runner "$sp")
         log "run script: $sp"
-        sh "$sp" >> "$LOG" 2>&1
+        sh "$runner" >> "$LOG" 2>&1
         log "script exit code: $?"
     else
         log "script not found: $sp"
@@ -133,7 +149,7 @@ run_user_script() {
 # 脚本里的命令跑完后进程不退出，等预输入全部完成后由 release_user_script 放行
 SCRIPT_HOLD_PID=""
 run_user_script_hold() {
-    local sp
+    local sp runner
     sp=$(get_script_path)
     SCRIPT_HOLD_PID=""
 
@@ -149,9 +165,11 @@ run_user_script_hold() {
     rm -f "$CONF/.script_release" "$CONF/.script_child" "$CONF/.script_hold_pid" 2>/dev/null
     log "run script（执行完不退出，等输入完成）: $sp"
 
+    runner=$(script_runner "$sp")
+
     (
         holder="${DAEMON_PID:-0}"
-        sh "$sp" >> "$LOG" 2>&1 &
+        sh "$runner" >> "$LOG" 2>&1 &
         child=$!
         echo "$child" > "$CONF/.script_child" 2>/dev/null
         wait "$child"
@@ -335,7 +353,7 @@ do_input() {
         return 1
     fi
 
-    local total idx=0 line rc speed
+    local total idx=0 line rc speed okc=0 failc=0
     speed=$(get_conf speed.txt 3 | tr -dc '0-9')
     [ -z "$speed" ] && speed=3
     [ "$speed" -gt 60 ] && speed=60
@@ -351,7 +369,11 @@ do_input() {
         [ -z "$line" ] && continue
 
         idx=$((idx + 1))
-        send_line "$line" "$idx"
+        if send_line "$line" "$idx"; then
+            okc=$((okc + 1))
+        else
+            failc=$((failc + 1))
+        fi
         sleep 0.2
         send_enter
         rc=$?
@@ -369,7 +391,8 @@ do_input() {
     done
     exec 9<&-
 
-    log "input: 完成，已发送 $idx 条"
+    log "input: 完成，已发送 $idx 条（成功 $okc / 失败 $failc）"
+    echo "DO_INPUT ok=$okc fail=$failc total=$idx"
     [ "$idx" -gt 0 ]
 }
 
@@ -413,6 +436,8 @@ run_script_feed() {
         fi
     fi
     echo "===== $(date '+%m-%d %H:%M:%S') 执行脚本 $sp =====" >> "$slog" 2>/dev/null
+    local runner
+    runner=$(script_runner "$sp")
 
     if [ "$delay" -gt 0 ]; then
         log "-- 等待 ${delay}s 后执行脚本"
@@ -434,7 +459,7 @@ run_script_feed() {
             done < "$CONF/input.txt"
         fi
         log "stdin: 输入完成，共 $n 条"
-    } | sh "$sp" >> "$slog" 2>&1 &
+    } | sh "$runner" >> "$slog" 2>&1 &
 
     SCRIPT_FEED_PID=$!
     log "script feed pid=$SCRIPT_FEED_PID（脚本在后台运行，输出见 script.log）"

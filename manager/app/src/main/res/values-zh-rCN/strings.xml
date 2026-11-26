@@ -443,6 +443,11 @@
     <string name="autoinput_test_title">测试一次</string>
     <string name="autoinput_test_summary">按当前配置立即执行一次（屏幕输入需先让输入框获得光标）</string>
     <string name="autoinput_test_inject">测试到本框</string>
+    <string name="autoinput_last_run">最近运行记录</string>
+    <string name="autoinput_inject_ok">已注入 %1$s 行，看输入框</string>
+    <string name="autoinput_inject_partial">注入 %1$s 行成功、%2$s 行失败（见日志）</string>
+    <string name="autoinput_mode_script_tip_title">当前是脚本喂入</string>
+    <string name="autoinput_mode_script_tip_desc">内容只会写进脚本的标准输入，不会打到屏幕上。要在应用里自动填字，请把输入方式改成屏幕输入</string>
     <string name="autoinput_diag_title">自检</string>
     <string name="autoinput_diag_summary">检查注入命令与前台识别是否正常</string>
     <string name="autoinput_remove_title">移除监听</string>
