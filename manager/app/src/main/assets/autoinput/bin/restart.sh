@@ -8,6 +8,8 @@ mkdir -p "$MODDIR/run" 2>/dev/null
 
 chmod 755 "$BIN_DIR/"*.sh 2>/dev/null
 
+start_watcher "$MODDIR"
+
 # 干掉旧 daemon，让看门狗用新配置立刻重新拉起
 kill_daemon "$MODDIR"
 

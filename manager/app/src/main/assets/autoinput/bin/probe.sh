@@ -3,7 +3,7 @@
 BIN_DIR="${0%/*}"
 . "$BIN_DIR/common.sh"
 
-FG=$(get_foreground_pkg)
+FG=$(current_fg)
 echo "FG=$FG"
 
 if input_focused; then

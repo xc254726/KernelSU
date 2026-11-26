@@ -464,6 +464,11 @@
     <string name="autoinput_live_not_target">Not a monitored app, switch to a target app to trigger</string>
     <string name="autoinput_run_now">Run now</string>
     <string name="autoinput_run_now_done">Monitor restarted, check the run log in a few seconds</string>
+    <string name="autoinput_run_script">Run script now</string>
+    <string name="autoinput_run_script_summary">Run the script once right away, without waiting for a trigger</string>
+    <string name="autoinput_script_started">Script started, check the run log below</string>
+    <string name="autoinput_script_no_path">No script path set yet</string>
+    <string name="autoinput_script_not_found">Script file not found, check the path</string>
     <string name="autoinput_mode_script_tip_title">Feeding a script</string>
     <string name="autoinput_mode_script_tip_desc">Lines go to the script stdin only, nothing is typed on screen. Switch to on-screen typing to fill text fields.</string>
     <string name="autoinput_diag_title">Self-check</string>

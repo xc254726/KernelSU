@@ -119,7 +119,7 @@ import me.weishu.kernelsu.ui.util.showReplacingSnackbar
 private const val CONF_DIR = "/data/adb/auto_input"
 private const val BIN_DIR = "$CONF_DIR/bin"
 private const val BOOT_SCRIPT = "/data/adb/service.d/chen-auto-input.sh"
-private const val BUNDLED_VERSION = "4"
+private const val BUNDLED_VERSION = "5"
 
 private val SCRIPT_NAMES = listOf(
     "common.sh",
@@ -130,6 +130,7 @@ private val SCRIPT_NAMES = listOf(
     "diag.sh",
     "test_input.sh",
     "probe.sh",
+    "watcher.sh",
 )
 
 private const val STATUS_SCRIPT = """
@@ -165,6 +166,22 @@ echo "mode=${'$'}(cat ${'$'}CONF/input_mode.txt 2>/dev/null)"
 echo "keep=${'$'}(cat ${'$'}CONF/keep_script.txt 2>/dev/null)"
 """
 
+/** 立刻按配置跑一次用户脚本（不看前台、不管触发条件），用来单独验证脚本本身。 */
+private const val RUN_SCRIPT_SCRIPT = """
+. /data/adb/auto_input/bin/common.sh
+sp=${'$'}(get_script_path)
+if [ -z "${'$'}sp" ]; then echo "NO_SCRIPT"; exit 1; fi
+if [ ! -f "${'$'}sp" ]; then echo "NOT_FOUND:${'$'}sp"; exit 1; fi
+log "手动执行脚本：${'$'}sp"
+runner=${'$'}(script_runner "${'$'}sp")
+if command -v setsid >/dev/null 2>&1; then
+    setsid sh "${'$'}runner" >> "${'$'}LOG" 2>&1 &
+else
+    nohup sh "${'$'}runner" >> "${'$'}LOG" 2>&1 &
+fi
+echo "STARTED:${'$'}!"
+"""
+
 /** 把当前编辑框内容（已写入 input.txt）直接注入屏幕，用来验证 input 到底能不能落字。 */
 private const val TEST_INJECT_SCRIPT = """
 . /data/adb/auto_input/bin/common.sh
@@ -176,6 +193,7 @@ private const val REMOVE_SCRIPT = """
 CONF=/data/adb/auto_input
 for p in ${'$'}(pgrep -f 'auto_input/bin/[s]upervisor\.sh' 2>/dev/null); do kill -9 ${'$'}p 2>/dev/null; done
 for p in ${'$'}(pgrep -f 'auto_input/bin/[d]aemon\.sh' 2>/dev/null); do kill -9 ${'$'}p 2>/dev/null; done
+for p in ${'$'}(pgrep -f 'auto_input/bin/[w]atcher\.sh' 2>/dev/null); do kill -9 ${'$'}p 2>/dev/null; done
 hp=${'$'}(cat ${'$'}CONF/.script_hold_pid 2>/dev/null)
 [ -n "${'$'}hp" ] && kill -9 ${'$'}hp 2>/dev/null
 cp=${'$'}(cat ${'$'}CONF/.script_child 2>/dev/null)
@@ -384,6 +402,9 @@ fun AutoInputScreen() {
     val msgInjectOk = stringResource(R.string.autoinput_inject_ok)
     val msgInjectPartial = stringResource(R.string.autoinput_inject_partial)
     val msgRunNow = stringResource(R.string.autoinput_run_now_done)
+    val msgScriptStarted = stringResource(R.string.autoinput_script_started)
+    val msgScriptNoPath = stringResource(R.string.autoinput_script_no_path)
+    val msgScriptNotFound = stringResource(R.string.autoinput_script_not_found)
 
     suspend fun refresh() {
         val rawStatus = withContext(Dispatchers.IO) { runRoot(ksuCli, STATUS_SCRIPT) }
@@ -491,6 +512,23 @@ fun AutoInputScreen() {
             busy = false
             refresh()
             snackBarHost.showReplacingSnackbar(msgRunNow)
+        }
+    }
+
+    // 不依赖监听触发，直接把当前脚本跑一次，用来单独验证脚本本身有没有问题
+    val runScriptNow: () -> Unit = {
+        scope.launch {
+            val out = withContext(Dispatchers.IO) {
+                if (config.scriptPath.isBlank()) "NO_SCRIPT" else runRoot(ksuCli, RUN_SCRIPT_SCRIPT)
+            }
+            val msg = when {
+                out.contains("NO_SCRIPT") -> msgScriptNoPath
+                out.contains("NOT_FOUND") -> msgScriptNotFound
+                else -> msgScriptStarted
+            }
+            snackBarHost.showReplacingSnackbar(msg)
+            delay(1500)
+            refresh()
         }
     }
 
@@ -694,6 +732,14 @@ fun AutoInputScreen() {
                                 stringResource(R.string.autoinput_script_summary_empty)
                             },
                             onClick = { showScriptEditor = true },
+                        )
+                    }
+                    item {
+                        SettingsJumpPageWidget(
+                            icon = Icons.Filled.PlayArrow,
+                            title = stringResource(R.string.autoinput_run_script),
+                            description = stringResource(R.string.autoinput_run_script_summary),
+                            onClick = runScriptNow,
                         )
                     }
                     if (config.mode != "screen") {

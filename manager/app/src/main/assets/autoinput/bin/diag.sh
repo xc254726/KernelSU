@@ -9,8 +9,8 @@ echo "时间      : $(date '+%Y-%m-%d %H:%M:%S')"
 echo "uid       : $(id -u 2>/dev/null)"
 echo "selinux   : $(getenforce 2>/dev/null)"
 echo "input命令 : $(resolve_input)"
-echo "当前前台  : $(get_foreground_pkg)"
-FG=$(get_foreground_pkg)
+FG=$(current_fg)
+echo "当前前台  : ${FG:-（读不到）}"
 if [ -n "$FG" ] && is_target "$FG"; then
     echo "是否目标  : 是（会触发）"
 else
@@ -42,6 +42,11 @@ echo "ADBKeyboard: $(has_adbkeyboard && echo 已安装 || echo 未安装)"
 
 echo "---- 进程 ----"
 if supervisor_alive "$MODDIR"; then echo "看门狗    : 运行中"; else echo "看门狗    : 未运行"; fi
+if pid_matches "$(read_pid "$MODDIR/run/watcher.pid")" watcher.sh; then
+    echo "事件监听  : 运行中 (缓存 $(cat "$CONF/.fg_last" 2>/dev/null | tr -d '\r\n'))"
+else
+    echo "事件监听  : 未运行"
+fi
 if pid_matches "$(read_pid "$MODDIR/run/daemon.pid")" daemon.sh; then
     echo "守护进程  : 运行中 (pid=$(read_pid "$MODDIR/run/daemon.pid"))"
 else

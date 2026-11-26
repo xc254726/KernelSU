@@ -456,6 +456,11 @@
     <string name="autoinput_live_not_target">不是监听目标，切到目标应用才会触发</string>
     <string name="autoinput_run_now">立即执行</string>
     <string name="autoinput_run_now_done">已重启监听，稍等几秒看运行记录</string>
+    <string name="autoinput_run_script">立即运行脚本</string>
+    <string name="autoinput_run_script_summary">不用等触发，直接按当前路径跑一次脚本</string>
+    <string name="autoinput_script_started">脚本已启动，看下面运行记录</string>
+    <string name="autoinput_script_no_path">还没设置脚本路径</string>
+    <string name="autoinput_script_not_found">脚本文件不存在，检查一下路径</string>
     <string name="autoinput_mode_script_tip_title">当前是脚本喂入</string>
     <string name="autoinput_mode_script_tip_desc">内容只会写进脚本的标准输入，不会打到屏幕上。要在应用里自动填字，请把输入方式改成屏幕输入</string>
     <string name="autoinput_diag_title">自检</string>

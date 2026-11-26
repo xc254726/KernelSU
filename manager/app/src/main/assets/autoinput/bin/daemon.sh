@@ -124,7 +124,7 @@ while true; do
         continue
     fi
 
-    CUR=$(get_foreground_pkg)
+    CUR=$(current_fg)
 
     # 取不到 / 输入法、系统 UI、权限弹窗这类噪音：保持状态不变，避免抖动误判
     if [ -z "$CUR" ] || is_noise_pkg "$CUR"; then

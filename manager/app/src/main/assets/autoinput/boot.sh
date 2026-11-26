@@ -10,7 +10,7 @@ mkdir -p "$CONF" "$CONF/run" 2>/dev/null
 echo "[$(date '+%m-%d %H:%M:%S')] boot hook invoked (service.d)" >> "$CONF/daemon.log"
 
 # 清理上次运行残留的 pid 文件，避免单例保护误拦
-rm -f "$CONF/run/"*.pid 2>/dev/null
+rm -f "$CONF/run/"*.pid "$CONF/.fg_last" 2>/dev/null
 
 # 后台等待开机完成后再拉起看门狗
 (

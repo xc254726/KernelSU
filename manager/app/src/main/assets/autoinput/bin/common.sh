@@ -115,6 +115,55 @@ input_focused() {
     esac
 }
 
+# 事件文件：watcher.sh 把 logcat 里的 resume 事件写到这里（格式 时间戳|包名）
+# 有些 ROM / SELinux 下 dumpsys 拿不到前台包名，这里作为一个独立来源兜底
+get_event_pkg() {
+    local line p ts now
+    [ -f "$CONF/.fg_last" ] || return 0
+    line=$(cat "$CONF/.fg_last" 2>/dev/null | tr -d '\r\n')
+    [ -z "$line" ] && return 0
+    ts=${line%%|*}
+    p=${line#*|}
+    now=$(date +%s 2>/dev/null)
+    [ -z "$now" ] && now=0
+    # 超过 6 小时没更新的事件视为失效，避免重启后一直沿用旧值
+    if [ "$now" -gt 0 ] && [ "$ts" -gt 0 ] && [ $((now - ts)) -gt 21600 ]; then
+        return 0
+    fi
+    is_valid_pkg "$p" || return 0
+    printf '%s' "$p"
+}
+
+# 当前前台应用
+# 事件监听在跑时优先用事件（快、开销小，也不受 SELinux 限制）；
+# 事件拿不到再回退到 dumpsys 快照
+current_fg() {
+    local p
+    if pid_matches "$(read_pid "$CONF/run/watcher.pid")" watcher.sh; then
+        p=$(get_event_pkg)
+        if [ -n "$p" ]; then
+            printf '%s' "$p"
+            return 0
+        fi
+    fi
+    get_foreground_pkg
+}
+
+# 拉起事件监听进程（单例）
+start_watcher() {
+    local moddir="${1:-/data/adb/auto_input}"
+    mkdir -p "$moddir/run" 2>/dev/null
+    if pid_matches "$(read_pid "$moddir/run/watcher.pid")" watcher.sh; then
+        return 0
+    fi
+    rm -f "$moddir/run/watcher.pid" 2>/dev/null
+    if command -v setsid >/dev/null 2>&1; then
+        setsid sh "$moddir/bin/watcher.sh" </dev/null >/dev/null 2>&1 &
+    else
+        nohup sh "$moddir/bin/watcher.sh" </dev/null >/dev/null 2>&1 &
+    fi
+}
+
 # 判断包名是否在监听列表中
 is_target() {
     local pkg="$1" t
