@@ -57,7 +57,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
@@ -83,8 +82,6 @@ import me.weishu.kernelsu.ui.component.settings.SettingsBaseWidget
 import me.weishu.kernelsu.ui.component.settings.SettingsJumpPageWidget
 import me.weishu.kernelsu.ui.component.settings.SettingsSwitchWidget
 import me.weishu.kernelsu.ui.navigation3.LocalNavigator
-import me.weishu.kernelsu.ui.theme.CardConfig
-import me.weishu.kernelsu.ui.theme.ThemeConfig
 import me.weishu.kernelsu.ui.theme.blurEffect
 import me.weishu.kernelsu.ui.theme.blurSource
 import me.weishu.kernelsu.ui.util.adaptiveScaffoldWindowInsets
@@ -300,8 +297,6 @@ private fun parseConfig(raw: String): AutoInputConfig {
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 fun AutoInputScreen() {
-    val themeConfig = remember { ThemeConfig() }
-    val cardConfig = remember { CardConfig() }
     val ksuCli = remember { KsuCliRepository() }
     val rootFiles = remember(ksuCli) { RootFileRepository(ksuCli) }
     val context = LocalContext.current
@@ -404,8 +399,6 @@ fun AutoInputScreen() {
 
     ScaffoldLike(
         title = stringResource(R.string.autoinput_title),
-        themeConfig = themeConfig,
-        cardConfig = cardConfig,
         scrollBehavior = scrollBehavior,
         snackBarHost = snackBarHost,
         onBack = { navigator.pop() },
@@ -797,8 +790,6 @@ private data class Quad(val title: String, val min: Int, val max: Int, val value
 @Composable
 private fun ScaffoldLike(
     title: String,
-    themeConfig: ThemeConfig,
-    cardConfig: CardConfig,
     scrollBehavior: androidx.compose.material3.TopAppBarScrollBehavior,
     snackBarHost: SnackbarHostState,
     onBack: () -> Unit,
@@ -814,23 +805,13 @@ private fun ScaffoldLike(
                 windowInsets = TopAppBarDefaults.windowInsets.add(WindowInsets(left = 12.dp)),
                 scrollBehavior = scrollBehavior,
                 colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor =
-                        if (themeConfig.isEnableBlur) {
-                            Color.Transparent
-                        } else {
-                            MaterialTheme.colorScheme.surfaceContainer.copy(cardConfig.cardAlpha)
-                        },
-                    scrolledContainerColor =
-                        if (themeConfig.isEnableBlur) {
-                            Color.Transparent
-                        } else {
-                            MaterialTheme.colorScheme.surfaceContainer.copy(cardConfig.cardAlpha)
-                        },
+                    containerColor = MaterialTheme.colorScheme.surfaceContainer,
+                    scrolledContainerColor = MaterialTheme.colorScheme.surfaceContainer,
                 ),
             )
         },
         snackbarHost = { SwipeableSnackbarHost(hostState = snackBarHost) },
-        containerColor = Color.Transparent,
+        containerColor = MaterialTheme.colorScheme.surfaceContainer,
         contentColor = MaterialTheme.colorScheme.onSurface,
     ) { innerPadding ->
         androidx.compose.foundation.layout.Box(
