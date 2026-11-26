@@ -440,8 +440,8 @@
     <string name="autoinput_mode_title">Input mode</string>
     <string name="autoinput_mode_script">Feed script</string>
     <string name="autoinput_mode_screen">On-screen typing</string>
-    <string name="autoinput_mode_script_desc">Run the script and feed lines into its stdin</string>
-    <string name="autoinput_mode_screen_desc">Type lines into the current screen with input</string>
+    <string name="autoinput_mode_script_desc">Run the script and feed lines into its stdin (falls back to on-screen typing without a script)</string>
+    <string name="autoinput_mode_screen_desc">Type lines into the current screen with input (focus the field first; Chinese needs ADBKeyboard)</string>
     <string name="autoinput_keep_title">Keep script alive</string>
     <string name="autoinput_keep_summary">In on-screen mode, keep the script running until typing finishes</string>
     <string name="autoinput_log_group">Logs &amp; maintenance</string>
@@ -449,7 +449,8 @@
     <string name="autoinput_log_summary">Daemon events and script output</string>
     <string name="autoinput_log_empty">Empty</string>
     <string name="autoinput_test_title">Run once</string>
-    <string name="autoinput_test_summary">Execute once with the current settings</string>
+    <string name="autoinput_test_summary">Execute once with the current settings (focus a text field first)</string>
+    <string name="autoinput_test_inject">Test here</string>
     <string name="autoinput_diag_title">Self-check</string>
     <string name="autoinput_diag_summary">Check input command and foreground detection</string>
     <string name="autoinput_remove_title">Remove monitor</string>

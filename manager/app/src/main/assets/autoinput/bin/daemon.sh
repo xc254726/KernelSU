@@ -43,12 +43,21 @@ start_script() {
 }
 
 run_flow() {
-    local pkg="$1" delay order keep mode
+    local pkg="$1" delay order keep mode sp
 
-    mode=$(get_conf input_mode.txt script | tr -d '\r\n')
-    [ -z "$mode" ] && mode="script"
+    mode=$(get_conf input_mode.txt screen | tr -d '\r\n')
+    [ -z "$mode" ] && mode="screen"
 
     # 模式一：把预输入内容喂给脚本（互动式脚本），不做任何屏幕模拟输入
+    if [ "$mode" != "screen" ]; then
+        sp=$(get_script_path)
+        if [ -z "$sp" ] || [ ! -f "$sp" ]; then
+            # 没有可用脚本时继续走脚本模式等于什么都不做，直接按屏幕输入执行
+            log "mode=script 但没有可用脚本（'$sp'），自动改用屏幕输入"
+            mode="screen"
+        fi
+    fi
+
     if [ "$mode" != "screen" ]; then
         delay=$(get_conf delay.txt 5 | tr -dc '0-9')
         [ -z "$delay" ] && delay=5

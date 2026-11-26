@@ -63,6 +63,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
@@ -117,7 +119,7 @@ import me.weishu.kernelsu.ui.util.showReplacingSnackbar
 private const val CONF_DIR = "/data/adb/auto_input"
 private const val BIN_DIR = "$CONF_DIR/bin"
 private const val BOOT_SCRIPT = "/data/adb/service.d/chen-auto-input.sh"
-private const val BUNDLED_VERSION = "1"
+private const val BUNDLED_VERSION = "2"
 
 private val SCRIPT_NAMES = listOf(
     "common.sh",
@@ -161,6 +163,13 @@ echo "mode=${'$'}(cat ${'$'}CONF/input_mode.txt 2>/dev/null)"
 echo "keep=${'$'}(cat ${'$'}CONF/keep_script.txt 2>/dev/null)"
 """
 
+/** 把当前编辑框内容（已写入 input.txt）直接注入屏幕，用来验证 input 到底能不能落字。 */
+private const val TEST_INJECT_SCRIPT = """
+. /data/adb/auto_input/bin/common.sh
+do_input
+echo DONE
+"""
+
 private const val REMOVE_SCRIPT = """
 CONF=/data/adb/auto_input
 for p in ${'$'}(pgrep -f 'auto_input/bin/[s]upervisor\.sh' 2>/dev/null); do kill -9 ${'$'}p 2>/dev/null; done
@@ -189,7 +198,7 @@ private data class AutoInputConfig(
     val delaySec: Int = 5,
     val speedSec: Int = 3,
     val minInterval: Int = 8,
-    val mode: String = "script",
+    val mode: String = "screen",
     val keepScript: Boolean = true,
 )
 
@@ -266,7 +275,7 @@ private fun installScripts(context: Context, ksuCli: KsuCliRepository): String {
         append("[ -f $CONF_DIR/delay.txt ] || echo 5 > $CONF_DIR/delay.txt\n")
         append("[ -f $CONF_DIR/speed.txt ] || echo 3 > $CONF_DIR/speed.txt\n")
         append("[ -f $CONF_DIR/min_interval.txt ] || echo 8 > $CONF_DIR/min_interval.txt\n")
-        append("[ -f $CONF_DIR/input_mode.txt ] || echo script > $CONF_DIR/input_mode.txt\n")
+        append("[ -f $CONF_DIR/input_mode.txt ] || echo screen > $CONF_DIR/input_mode.txt\n")
         append("[ -f $CONF_DIR/keep_script.txt ] || echo 1 > $CONF_DIR/keep_script.txt\n")
         append("[ -f $CONF_DIR/order.txt ] || echo script_first > $CONF_DIR/order.txt\n")
         append("[ -f $CONF_DIR/status ] || echo 1 > $CONF_DIR/status\n")
@@ -311,14 +320,19 @@ private fun parseConfig(raw: String): AutoInputConfig {
             ?.firstOrNull { it.startsWith("$key=") }
             ?.removePrefix("$key=")?.trim()?.takeIf { it.isNotEmpty() } ?: ""
 
+    val scriptPath = text("SP").trim()
+    val rawMode = str("mode").ifEmpty { "screen" }
+    // 选了脚本模式又没配脚本，等于什么都不做：界面上按实际行为显示为屏幕输入
+    val effectiveMode = if (rawMode != "screen" && scriptPath.isEmpty()) "screen" else rawMode
+
     return AutoInputConfig(
         pkgs = text("PKG").lineSequence().map { it.trim() }.filter { it.isNotEmpty() }.toList(),
         input = text("IN"),
-        scriptPath = text("SP").trim(),
+        scriptPath = scriptPath,
         delaySec = num("delay", 5),
         speedSec = num("speed", 3),
         minInterval = num("interval", 8),
-        mode = str("mode").ifEmpty { "script" },
+        mode = effectiveMode,
         keepScript = true,
     )
 }
@@ -700,6 +714,17 @@ fun AutoInputScreen() {
                 showInputEditor = false
                 scope.launch { persist(config.copy(input = text)) }
             },
+            onTest = { text ->
+                scope.launch {
+                    withContext(Dispatchers.IO) {
+                        // 先把待测内容写进 input.txt，再由脚本原样走一遍屏幕注入
+                        writeFile(ksuCli, "$CONF_DIR/input.txt", text)
+                        runRoot(ksuCli, TEST_INJECT_SCRIPT)
+                    }
+                    config = config.copy(input = text)
+                    snackBarHost.showReplacingSnackbar(msgTested)
+                }
+            },
         )
     }
 
@@ -1078,8 +1103,15 @@ private fun TextEditorDialog(
     minLines: Int,
     onDismiss: () -> Unit,
     onConfirm: (String) -> Unit,
+    onTest: ((String) -> Unit)? = null,
 ) {
     var text by remember { mutableStateOf(initial) }
+    val focusRequester = remember { FocusRequester() }
+    LaunchedEffect(Unit) {
+        // 等对话框真正挂上窗口再要焦点，否则注入测试没有落点
+        delay(150)
+        runCatching { focusRequester.requestFocus() }
+    }
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(title) },
@@ -1087,10 +1119,21 @@ private fun TextEditorDialog(
             OutlinedTextField(
                 value = text,
                 onValueChange = { text = it },
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .focusRequester(focusRequester),
                 minLines = minLines,
                 maxLines = 12,
-                supportingText = { Text(hint) },
+                supportingText = {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(hint, modifier = Modifier.weight(1f))
+                        if (onTest != null) {
+                            TextButton(onClick = { onTest(text) }) {
+                                Text(stringResource(R.string.autoinput_test_inject))
+                            }
+                        }
+                    }
+                },
             )
         },
         confirmButton = {

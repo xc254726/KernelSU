@@ -261,7 +261,7 @@ has_adbkeyboard() {
 
 # 发送单行文本：优先 input text，失败则用 ADBKeyboard 广播
 send_line() {
-    local text="$1" idx="$2" bin rc out b64
+    local text="$1" idx="$2" bin rc out b64 ascii
 
     bin=$(resolve_input)
     if [ -z "$bin" ]; then
@@ -269,14 +269,26 @@ send_line() {
         return 1
     fi
 
+    # input text 只对 ASCII 可靠；中文/emoji 必须走 ADBKeyboard
+    ascii=1
+    printf '%s' "$text" | LC_ALL=C grep -q '[^ -~]' && ascii=0
+
     # 策略 1：input text（引号整体传参，命令行内空格无需转义）
-    out=$($bin text "$text" </dev/null 2>&1)
-    rc=$?
-    if [ "$rc" -eq 0 ] && [ -z "$out" ]; then
-        log "input[$idx] ok(text): $text"
-        return 0
+    if [ "$ascii" = "1" ]; then
+        out=$($bin text "$text" </dev/null 2>&1)
+        rc=$?
+        if [ "$rc" -eq 0 ] && [ -z "$out" ]; then
+            log "input[$idx] ok(text): $text"
+            return 0
+        fi
+        if [ "$rc" -eq 0 ] && ! printf '%s' "$out" | grep -qi 'error\|exception\|not found\|unknown'; then
+            log "input[$idx] ok(text, out=$out): $text"
+            return 0
+        fi
+        log "input[$idx] text 返回 rc=$rc out=$out"
+    else
+        log "input[$idx] 内容含中文/符号，input text 不支持，尝试 ADBKeyboard"
     fi
-    log "input[$idx] text 返回 rc=$rc out=$out"
 
     # 策略 2：ADBKeyboard（支持中文/特殊字符，装了才用）
     if has_adbkeyboard; then
@@ -290,6 +302,8 @@ send_line() {
             fi
             log "input[$idx] adbkeyboard 失败 rc=$rc out=$out"
         fi
+    else
+        log "input[$idx] 未安装 ADBKeyboard，中文无法注入（装 ADBKeyboard 或改用脚本模式）"
     fi
 
     log "input[$idx] FAIL: 该行未能输入 -> $text"
