@@ -739,7 +739,7 @@ fun AutoInputScreen() {
                             icon = Icons.Filled.PlayArrow,
                             title = stringResource(R.string.autoinput_run_script),
                             description = stringResource(R.string.autoinput_run_script_summary),
-                            onClick = runScriptNow,
+                            onClick = { runScriptNow() },
                         )
                     }
                     if (config.mode != "screen") {
