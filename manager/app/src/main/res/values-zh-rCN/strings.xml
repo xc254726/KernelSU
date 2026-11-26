@@ -429,11 +429,6 @@
     <string name="autoinput_speed_title">每条间隔</string>
     <string name="autoinput_interval_title">最小触发间隔</string>
     <string name="autoinput_seconds">%1$d 秒</string>
-    <string name="autoinput_times">%1$d 次</string>
-    <string name="autoinput_enter_title">每行回车次数</string>
-    <string name="autoinput_enter_desc_one">默认，每行按一次回车</string>
-    <string name="autoinput_enter_desc_two">中文输入法常把第一次回车用来确认候选词，这种情况下选两次</string>
-    <string name="autoinput_enter_desc_three">个别界面要连按三次才响应回车</string>
     <string name="autoinput_mode_title">输入方式</string>
     <string name="autoinput_mode_script">脚本喂入</string>
     <string name="autoinput_mode_screen">屏幕输入</string>
@@ -449,9 +444,6 @@
     <string name="autoinput_test_summary">按当前输入方式立即执行一次（屏幕输入需先让输入框获得光标）</string>
     <string name="autoinput_test_inject">测试到本框</string>
     <string name="autoinput_last_run">最近运行记录</string>
-    <string name="autoinput_inject_ok">已注入 %1$s 行，看输入框</string>
-    <string name="autoinput_inject_partial">注入 %1$s 行成功、%2$s 行失败（见日志）</string>
-    <string name="autoinput_inject_enter_fail">文字已输入 %1$s 行，但回车全失败（见自检「回车测试」）</string>
     <string name="autoinput_live_title">实时前台</string>
     <string name="autoinput_live_unknown">读不到前台应用</string>
     <string name="autoinput_live_unknown_hint">没能从系统里读出现在是哪个应用，稍后自动刷新再试</string>
@@ -471,9 +463,6 @@
     <string name="autoinput_mode_script_tip_desc">内容只会写进脚本的标准输入，不会打到屏幕上。要在应用里自动填字，请把输入方式改成屏幕输入</string>
     <string name="autoinput_diag_title">自检</string>
     <string name="autoinput_diag_summary">检查注入命令与前台识别是否正常</string>
-    <string name="autoinput_probe_title">脚本体检</string>
-    <string name="autoinput_probe_summary">检查脚本本身：换行、解释器、解压相关代码</string>
-    <string name="autoinput_source_app_hint">当前守护进程由管理器启动，划掉管理器会一起停。重启一次手机后会转为开机自启，之后划掉管理器也不影响。</string>
     <string name="autoinput_remove_title">移除监听</string>
     <string name="autoinput_remove_summary">停止守护进程并删除脚本与配置</string>
     <string name="autoinput_remove_confirm">将停止守护进程、删除开机脚本与全部配置。确定移除？</string>

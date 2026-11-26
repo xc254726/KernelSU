@@ -15,14 +15,7 @@ if [ -n "$OLD" ] && [ "$OLD" != "$$" ] && pid_matches "$OLD" supervisor.sh; then
     exit 0
 fi
 echo "$$" > "$PIDFILE"
-
-# 脱离启动者（管理器 / root shell）：忽略挂断、降低回收优先级、迁出 App 的 cgroup
-trap '' HUP
-detach_proc $$
-
-SRC="${AUTOINPUT_SOURCE:-app}"
-echo "$SRC" > "$CONF/.start_source" 2>/dev/null
-log "watchdog started pid=$$ (source=$SRC)"
+log "watchdog started pid=$$"
 
 while true; do
     sh "$BIN_DIR/daemon.sh"

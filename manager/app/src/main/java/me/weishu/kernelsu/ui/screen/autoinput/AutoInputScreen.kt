@@ -35,7 +35,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.twotone.Add
 import androidx.compose.material.icons.twotone.Delete
 import androidx.compose.material3.AlertDialog
@@ -120,8 +119,9 @@ import me.weishu.kernelsu.ui.util.showReplacingSnackbar
 private const val CONF_DIR = "/data/adb/auto_input"
 private const val BIN_DIR = "$CONF_DIR/bin"
 private const val BOOT_SCRIPT = "/data/adb/service.d/chen-auto-input.sh"
-private const val BUNDLED_VERSION = "10"
+private const val BUNDLED_VERSION = "20"
 
+// 后台脚本 = auto-input.zip 原模块原样（一个字不改），只负责落盘到 /data/adb/auto_input/bin
 private val SCRIPT_NAMES = listOf(
     "common.sh",
     "daemon.sh",
@@ -130,24 +130,19 @@ private val SCRIPT_NAMES = listOf(
     "status.sh",
     "diag.sh",
     "test_input.sh",
-    "probe.sh",
-    "flow_test.sh",
-    "script_probe.sh",
+    "applist.sh",
 )
 
 private const val STATUS_SCRIPT = """
 CONF=/data/adb/auto_input
 [ -d ${'$'}CONF/bin ] && echo DIR=1 || echo DIR=0
 [ -f /data/adb/service.d/chen-auto-input.sh ] && echo BOOT=1 || echo BOOT=0
-echo ST=${'$'}(cat ${'$'}CONF/status 2>/dev/null)
-P=${'$'}(pgrep -f 'auto_input/bin/[d]aemon\.sh' 2>/dev/null | head -n1)
-[ -z "${'$'}P" ] && P=${'$'}(ps -A 2>/dev/null | grep 'auto_input/bin/[d]aemon\.sh' | grep -v grep | awk '{print ${'$'}2}' | head -n1)
-echo PID=${'$'}P
-S=${'$'}(pgrep -f 'auto_input/bin/[s]upervisor\.sh' 2>/dev/null | head -n1)
-[ -z "${'$'}S" ] && S=${'$'}(ps -A 2>/dev/null | grep 'auto_input/bin/[s]upervisor\.sh' | grep -v grep | awk '{print ${'$'}2}' | head -n1)
-echo SPID=${'$'}S
-echo SRC=${'$'}(cat ${'$'}CONF/.start_source 2>/dev/null)
-sh /data/adb/auto_input/bin/probe.sh 2>/dev/null
+sh ${'$'}CONF/bin/status.sh 2>/dev/null
+. ${'$'}CONF/bin/common.sh
+echo FG=${'$'}(get_foreground_pkg)
+FOCUS=0
+dumpsys input_method 2>/dev/null | grep -q 'mInputShown=true' && FOCUS=1
+echo FOCUS=${'$'}FOCUS
 """
 
 private const val READ_CONFIG_SCRIPT = """
@@ -167,27 +162,16 @@ echo "speed=${'$'}(cat ${'$'}CONF/speed.txt 2>/dev/null)"
 echo "interval=${'$'}(cat ${'$'}CONF/min_interval.txt 2>/dev/null)"
 echo "mode=${'$'}(cat ${'$'}CONF/input_mode.txt 2>/dev/null)"
 echo "keep=${'$'}(cat ${'$'}CONF/keep_script.txt 2>/dev/null)"
-echo "enter=${'$'}(cat ${'$'}CONF/enter_count.txt 2>/dev/null)"
 """
 
-/**
- * 立刻按当前配置走一遍完整流程（脚本 -> 喂入/屏幕输入 -> 回车），不看前台、不等触发。
- * 用来区分「触发没成功」和「触发成功但输入/回车没生效」。
- */
-private const val RUN_FLOW_SCRIPT = """
+/** 原模块的 test_input.sh：script 模式跑脚本并喂预输入，screen 模式模拟屏幕输入 */
+private const val TEST_INPUT_SCRIPT = """
 if command -v setsid >/dev/null 2>&1; then
-    setsid sh /data/adb/auto_input/bin/flow_test.sh </dev/null >/dev/null 2>&1 &
+    setsid sh /data/adb/auto_input/bin/test_input.sh </dev/null >/dev/null 2>&1 &
 else
-    nohup sh /data/adb/auto_input/bin/flow_test.sh </dev/null >/dev/null 2>&1 &
+    nohup sh /data/adb/auto_input/bin/test_input.sh </dev/null >/dev/null 2>&1 &
 fi
-echo "STARTED:${'$'}!"
-"""
-
-/** 把当前编辑框内容（已写入 input.txt）直接注入屏幕，用来验证 input 到底能不能落字。 */
-private const val TEST_INJECT_SCRIPT = """
-. /data/adb/auto_input/bin/common.sh
-do_input
-echo DONE
+echo "STARTED"
 """
 
 private const val REMOVE_SCRIPT = """
@@ -211,9 +195,6 @@ private data class AutoInputStatus(
     val supervisorRunning: Boolean = false,
     val foregroundPkg: String = "",
     val inputFocused: Boolean = false,
-    val probeRaw: String = "",
-    /** 守护进程是谁拉起来的：boot=开机自启（划掉管理器也不受影响），app=管理器 */
-    val startSource: String = "",
 )
 
 private data class AutoInputConfig(
@@ -225,7 +206,6 @@ private data class AutoInputConfig(
     val minInterval: Int = 8,
     val mode: String = "screen",
     val keepScript: Boolean = true,
-    val enterCount: Int = 1,
 )
 
 private enum class NumberKind { Delay, Speed, Interval }
@@ -290,6 +270,8 @@ private fun installScripts(context: Context, ksuCli: KsuCliRepository): String {
                 .append("' | base64 -d > $BIN_DIR/$name\n")
             append("chmod 755 $BIN_DIR/$name\n")
         }
+        // 清掉旧版本遗留的脚本（现已完全采用原模块，这几个是以前自加的）
+        append("rm -f $BIN_DIR/flow_test.sh $BIN_DIR/probe.sh $BIN_DIR/script_probe.sh\n")
         append("printf %s '").append(assetBase64(context, "boot.sh"))
             .append("' | base64 -d > $BOOT_SCRIPT\n")
         append("chmod 755 $BOOT_SCRIPT\n")
@@ -303,7 +285,6 @@ private fun installScripts(context: Context, ksuCli: KsuCliRepository): String {
         append("[ -f $CONF_DIR/min_interval.txt ] || echo 8 > $CONF_DIR/min_interval.txt\n")
         append("[ -f $CONF_DIR/input_mode.txt ] || echo screen > $CONF_DIR/input_mode.txt\n")
         append("[ -f $CONF_DIR/keep_script.txt ] || echo 1 > $CONF_DIR/keep_script.txt\n")
-        append("[ -f $CONF_DIR/enter_count.txt ] || echo 1 > $CONF_DIR/enter_count.txt\n")
         append("[ -f $CONF_DIR/order.txt ] || echo script_first > $CONF_DIR/order.txt\n")
         append("[ -f $CONF_DIR/status ] || echo 1 > $CONF_DIR/status\n")
         append("chmod 755 $CONF_DIR 2>/dev/null\n")
@@ -317,19 +298,15 @@ private fun installScripts(context: Context, ksuCli: KsuCliRepository): String {
 private fun parseStatus(raw: String): AutoInputStatus = AutoInputStatus(
     installed = raw.contains("DIR=1"),
     bootRegistered = raw.contains("BOOT=1"),
-    enabled = raw.lineSequence().firstOrNull { it.startsWith("ST=") }
-        ?.removePrefix("ST=")?.trim() != "0",
-    daemonRunning = raw.lineSequence().firstOrNull { it.startsWith("PID=") }
-        ?.removePrefix("PID=")?.trim()?.isNotEmpty() == true,
-    supervisorRunning = raw.lineSequence().firstOrNull { it.startsWith("SPID=") }
-        ?.removePrefix("SPID=")?.trim()?.isNotEmpty() == true,
+    enabled = raw.lineSequence().firstOrNull { it.startsWith("status=") }
+        ?.removePrefix("status=")?.trim() != "0",
+    daemonRunning = raw.lineSequence().firstOrNull { it.startsWith("daemon=") }
+        ?.removePrefix("daemon=")?.trim() == "1",
+    supervisorRunning = raw.lineSequence().firstOrNull { it.startsWith("supervisor=") }
+        ?.removePrefix("supervisor=")?.trim() == "1",
     foregroundPkg = raw.lineSequence().firstOrNull { it.startsWith("FG=") }
         ?.removePrefix("FG=")?.trim().orEmpty(),
     inputFocused = raw.contains("FOCUS=1"),
-    probeRaw = raw.lineSequence().firstOrNull { it.startsWith("RAW=") }
-        ?.removePrefix("RAW=")?.trim().orEmpty(),
-    startSource = raw.lineSequence().firstOrNull { it.startsWith("SRC=") }
-        ?.removePrefix("SRC=")?.trim().orEmpty(),
 )
 
 private fun parseConfig(raw: String): AutoInputConfig {
@@ -366,7 +343,6 @@ private fun parseConfig(raw: String): AutoInputConfig {
         minInterval = num("interval", 8),
         mode = rawMode,
         keepScript = true,
-        enterCount = num("enter", 1).coerceIn(1, 3),
     )
 }
 
@@ -392,24 +368,18 @@ fun AutoInputScreen() {
     var showInputEditor by remember { mutableStateOf(false) }
     var showScriptEditor by remember { mutableStateOf(false) }
     var showModePicker by remember { mutableStateOf(false) }
-    var showEnterPicker by remember { mutableStateOf(false) }
     var showLog by remember { mutableStateOf(false) }
     var showDiag by remember { mutableStateOf(false) }
-    var showProbe by remember { mutableStateOf(false) }
     var numberKind by remember { mutableStateOf<NumberKind?>(null) }
     var logText by remember { mutableStateOf("") }
     var lastRun by remember { mutableStateOf("") }
     var diagText by remember { mutableStateOf("") }
-    var probeText by remember { mutableStateOf("") }
 
     val msgSaved = stringResource(R.string.autoinput_saved)
     val msgStarted = stringResource(R.string.autoinput_started)
     val msgStopped = stringResource(R.string.autoinput_stopped)
     val msgRemoved = stringResource(R.string.autoinput_removed)
     val msgTested = stringResource(R.string.autoinput_test_done)
-    val msgInjectOk = stringResource(R.string.autoinput_inject_ok)
-    val msgInjectPartial = stringResource(R.string.autoinput_inject_partial)
-    val msgInjectEnterFail = stringResource(R.string.autoinput_inject_enter_fail)
     val msgRunNow = stringResource(R.string.autoinput_run_now_done)
     val msgScriptStarted = stringResource(R.string.autoinput_script_started)
     val msgScriptNoPath = stringResource(R.string.autoinput_script_no_path)
@@ -439,7 +409,7 @@ fun AutoInputScreen() {
             writeFile(ksuCli, "$CONF_DIR/min_interval.txt", next.minInterval.toString())
             writeFile(ksuCli, "$CONF_DIR/input_mode.txt", next.mode)
             writeFile(ksuCli, "$CONF_DIR/keep_script.txt", "1")
-            writeFile(ksuCli, "$CONF_DIR/enter_count.txt", next.enterCount.toString())
+            writeFile(ksuCli, "$CONF_DIR/order.txt", "script_first")
         }
         config = next
         busy = false
@@ -548,7 +518,7 @@ fun AutoInputScreen() {
                     runRoot(ksuCli, "test -f '${config.scriptPath}' && echo YES || echo NO")
                 }.contains("NO") -> msgScriptNotFound
                 else -> {
-                    withContext(Dispatchers.IO) { runRoot(ksuCli, RUN_FLOW_SCRIPT) }
+                    withContext(Dispatchers.IO) { runRoot(ksuCli, TEST_INPUT_SCRIPT) }
                     msgScriptStarted
                 }
             }
@@ -580,28 +550,6 @@ fun AutoInputScreen() {
                     enabled = loaded && !busy,
                     onCheckedChange = toggle,
                 )
-            }
-
-            // 守护进程是管理器拉起来的：管理器一被划掉就会跟着停，提醒用户重启一次手机
-            if (loaded && status.installed && status.enabled &&
-                status.daemonRunning && status.startSource != "boot"
-            ) {
-                item {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 16.dp, vertical = 2.dp)
-                            .clip(RoundedCornerShape(14.dp))
-                            .background(MaterialTheme.colorScheme.secondaryContainer)
-                            .padding(horizontal = 14.dp, vertical = 10.dp),
-                    ) {
-                        Text(
-                            text = stringResource(R.string.autoinput_source_app_hint),
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSecondaryContainer,
-                        )
-                    }
-                }
             }
 
             item {
@@ -649,17 +597,6 @@ fun AutoInputScreen() {
                             fontSize = 11.sp,
                             color = MaterialTheme.colorScheme.onSurface,
                         )
-                        if (fg.isEmpty() && status.probeRaw.isNotEmpty()) {
-                            Text(
-                                text = status.probeRaw,
-                                fontFamily = FontFamily.Monospace,
-                                fontSize = 9.sp,
-                                lineHeight = 12.sp,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                maxLines = 3,
-                                overflow = TextOverflow.Ellipsis,
-                            )
-                        }
                         Text(
                             text = when {
                                 !status.installed -> stringResource(R.string.autoinput_live_not_installed)
@@ -833,13 +770,6 @@ fun AutoInputScreen() {
                             onClick = { showModePicker = true },
                         )
                     }
-                    item {
-                        SettingsJumpPageWidget(
-                            title = stringResource(R.string.autoinput_enter_title),
-                            description = stringResource(R.string.autoinput_times, config.enterCount),
-                            onClick = { showEnterPicker = true },
-                        )
-                    }
                 }
             }
 
@@ -908,22 +838,6 @@ fun AutoInputScreen() {
                         )
                     }
                     item {
-                        SettingsJumpPageWidget(
-                            icon = Icons.Filled.Search,
-                            title = stringResource(R.string.autoinput_probe_title),
-                            description = stringResource(R.string.autoinput_probe_summary),
-                            onClick = {
-                                scope.launch {
-                                    val text = withContext(Dispatchers.IO) {
-                                        runRoot(ksuCli, "sh $BIN_DIR/script_probe.sh 2>&1")
-                                    }
-                                    probeText = text.ifBlank { "no output" }
-                                    showProbe = true
-                                }
-                            },
-                        )
-                    }
-                    item {
                         SettingsBaseWidget(
                             icon = Icons.Filled.Delete,
                             title = stringResource(R.string.autoinput_remove_title),
@@ -979,26 +893,13 @@ fun AutoInputScreen() {
             },
             onTest = { text ->
                 scope.launch {
-                    val out = withContext(Dispatchers.IO) {
-                        // 先把待测内容写进 input.txt，再由脚本原样走一遍屏幕注入
+                    withContext(Dispatchers.IO) {
+                        // 先把待测内容写进 input.txt，再走原模块的 test_input.sh
                         writeFile(ksuCli, "$CONF_DIR/input.txt", text)
-                        runRoot(ksuCli, TEST_INJECT_SCRIPT)
+                        runRoot(ksuCli, "sh $BIN_DIR/test_input.sh >/dev/null 2>&1 &")
                     }
                     config = config.copy(input = text)
-                    val hit = Regex(
-                        "DO_INPUT ok=(\\d+) fail=(\\d+)(?: enter_fail=(\\d+))?",
-                    ).find(out)
-                    val ok = hit?.groupValues?.get(1)
-                    val fail = hit?.groupValues?.getOrNull(2)
-                    val enterFail = hit?.groupValues?.getOrNull(3)
-                    val msg = when {
-                        ok == null -> msgTested
-                        enterFail != null && enterFail != "0" && enterFail == ok ->
-                            msgInjectEnterFail.replace("%1\$s", ok)
-                        fail == null || fail == "0" -> msgInjectOk.replace("%1\$s", ok)
-                        else -> msgInjectPartial.replace("%1\$s", ok).replace("%2\$s", fail)
-                    }
-                    snackBarHost.showReplacingSnackbar(msg)
+                    snackBarHost.showReplacingSnackbar(msgTested)
                 }
             },
         )
@@ -1044,37 +945,6 @@ fun AutoInputScreen() {
             },
             confirmButton = {
                 TextButton(onClick = { showModePicker = false }) {
-                    Text(stringResource(R.string.autoinput_cancel))
-                }
-            },
-        )
-    }
-
-    if (showEnterPicker) {
-        AlertDialog(
-            onDismissRequest = { showEnterPicker = false },
-            title = { Text(stringResource(R.string.autoinput_enter_title)) },
-            text = {
-                Column(Modifier.fillMaxWidth()) {
-                    listOf(1, 2, 3).forEach { cnt ->
-                        ModeRow(
-                            title = stringResource(R.string.autoinput_times, cnt),
-                            desc = when (cnt) {
-                                1 -> stringResource(R.string.autoinput_enter_desc_one)
-                                2 -> stringResource(R.string.autoinput_enter_desc_two)
-                                else -> stringResource(R.string.autoinput_enter_desc_three)
-                            },
-                            selected = config.enterCount == cnt,
-                            onClick = {
-                                showEnterPicker = false
-                                scope.launch { persist(config.copy(enterCount = cnt)) }
-                            },
-                        )
-                    }
-                }
-            },
-            confirmButton = {
-                TextButton(onClick = { showEnterPicker = false }) {
                     Text(stringResource(R.string.autoinput_cancel))
                 }
             },
@@ -1129,14 +999,6 @@ fun AutoInputScreen() {
             title = stringResource(R.string.autoinput_diag_title),
             text = diagText,
             onDismiss = { showDiag = false },
-        )
-    }
-
-    if (showProbe) {
-        TextDialog(
-            title = stringResource(R.string.autoinput_probe_title),
-            text = probeText,
-            onDismiss = { showProbe = false },
         )
     }
 }

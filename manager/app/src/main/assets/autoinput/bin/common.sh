@@ -4,11 +4,6 @@
 CONF=/data/adb/auto_input
 LOG="$CONF/daemon.log"
 
-# 守护进程由 setsid/nohup 从 root shell 拉起，PATH 未必完整；
-# 缺了 /system/bin 就会找不到 dumpsys / input，表现为「能手动执行但不触发」
-PATH=/system/bin:/system/xbin:/sbin:/vendor/bin:${PATH}
-export PATH
-
 mkdir -p "$CONF" 2>/dev/null
 
 log() {
@@ -52,21 +47,6 @@ is_valid_pkg() {
     echo "$1" | grep -qE '^[A-Za-z][A-Za-z0-9_]*(\.[A-Za-z0-9_]+)+$'
 }
 
-# 兜底：从系统事件日志里取最近一次 resume 的包名（只读一次，不常驻）
-# 部分 ROM 在 root 域下 dumpsys 被拦或输出格式不认识，这时事件日志通常是可读的
-fg_from_events() {
-    local line pkg
-    line=$(logcat -b events -d -t 80 2>/dev/null \
-        | grep -E 'am_resume_activity|am_focused_activity|wm_on_resume_called' \
-        | tail -n 1)
-    [ -z "$line" ] && return 0
-    pkg=$(printf '%s' "$line" \
-        | sed -nE 's/.*[^A-Za-z0-9_.]([A-Za-z][A-Za-z0-9_]*(\.[A-Za-z0-9_]+)+)\/[^]]*.*/\1/p' \
-        | head -n 1)
-    is_valid_pkg "$pkg" || return 0
-    printf '%s' "$pkg"
-}
-
 # 获取当前前台应用包名
 get_foreground_pkg() {
     local pkg=""
@@ -79,11 +59,6 @@ get_foreground_pkg() {
         pkg=$(dumpsys window 2>/dev/null \
             | grep -m1 'mCurrentFocus' \
             | sed -E 's/.*u[0-9]+[[:space:]]+([A-Za-z0-9_.]+)\/[^ }]*.*/\1/')
-    fi
-
-    # 两种 dumpsys 都拿不到时，才回头去翻一次事件日志（正常情况下不会走到这里）
-    if ! is_valid_pkg "$pkg"; then
-        pkg=$(fg_from_events)
     fi
 
     if ! is_valid_pkg "$pkg"; then
@@ -137,34 +112,17 @@ get_script_path() {
     printf '%s' "$sp"
 }
 
-# 按 shebang 选解释器：脚本声明 bash 且系统真有 bash 就用 bash，否则退回 sh
-# （很多脚本写 #!/bin/bash，Android 默认没有 bash，用 sh 跑会在某些语法/内建上出错）
-pick_shell() {
-    local sp="$1" first
-    first=$(head -n 1 "$sp" 2>/dev/null | tr -d '\r')
-    case "$first" in
-        *bash*)
-            if command -v bash >/dev/null 2>&1; then
-                command -v bash
-                return 0
-            fi
-            ;;
-    esac
-    printf 'sh'
-}
-
 # 执行用户指定的 sh 脚本（同步：等脚本整段跑完才返回）
 run_user_script() {
-    local sp shbin
+    local sp
     sp=$(get_script_path)
     if [ -z "$sp" ]; then
         log "no script path configured, skip"
         return 0
     fi
     if [ -f "$sp" ]; then
-        shbin=$(pick_shell "$sp")
-        log "run script: $sp (shell=$shbin)"
-        "$shbin" "$sp" </dev/null >> "$LOG" 2>&1
+        log "run script: $sp"
+        sh "$sp" >> "$LOG" 2>&1
         log "script exit code: $?"
     else
         log "script not found: $sp"
@@ -175,9 +133,8 @@ run_user_script() {
 # 脚本里的命令跑完后进程不退出，等预输入全部完成后由 release_user_script 放行
 SCRIPT_HOLD_PID=""
 run_user_script_hold() {
-    local sp shbin
+    local sp
     sp=$(get_script_path)
-    shbin=$(pick_shell "$sp")
     SCRIPT_HOLD_PID=""
 
     if [ -z "$sp" ]; then
@@ -190,11 +147,11 @@ run_user_script_hold() {
     fi
 
     rm -f "$CONF/.script_release" "$CONF/.script_child" "$CONF/.script_hold_pid" 2>/dev/null
-    log "run script（执行完不退出，等输入完成）: $sp (shell=$shbin)"
+    log "run script（执行完不退出，等输入完成）: $sp"
 
     (
         holder="${DAEMON_PID:-0}"
-        "$shbin" "$sp" </dev/null >> "$LOG" 2>&1 &
+        sh "$sp" >> "$LOG" 2>&1 &
         child=$!
         echo "$child" > "$CONF/.script_child" 2>/dev/null
         wait "$child"
@@ -339,44 +296,13 @@ send_line() {
     return 1
 }
 
-# 按回车
-# 不同 ROM / 输入法对回车键反应不一致，这里依次试 KEYCODE_ENTER(66)、字面量 KEYCODE_ENTER、小键盘回车(160)
-# enter_count.txt 控制每行按几次（中文输入法常把第一次回车用来确认候选词，需要两次）
+# 按一次回车
 send_enter() {
-    local idx="$1" bin out rc ok key i count
-
+    local bin
     bin=$(resolve_input)
-    if [ -z "$bin" ]; then
-        log "enter[$idx] FAIL: 找不到 input 命令"
-        return 1
-    fi
-
-    count=$(get_conf enter_count.txt 1 | tr -dc '0-9')
-    [ -z "$count" ] && count=1
-    [ "$count" -lt 1 ] && count=1
-    [ "$count" -gt 3 ] && count=3
-
-    i=0
-    while [ "$i" -lt "$count" ]; do
-        i=$((i + 1))
-        ok=0
-        for key in 66 KEYCODE_ENTER 160; do
-            out=$($bin keyevent "$key" </dev/null 2>&1)
-            rc=$?
-            if [ "$rc" -eq 0 ] && ! printf '%s' "$out" | grep -qiE 'error|exception|failed|denial'; then
-                ok=1
-                log "enter[$idx] ok（第 $i/$count 次，key=$key）"
-                break
-            fi
-            log "enter[$idx] key=$key 失败 rc=$rc out=$(printf '%s' "$out" | tr -d '\r\n' | cut -c1-120)"
-        done
-        if [ "$ok" -ne 1 ]; then
-            log "enter[$idx] FAIL: 三种回车键都没能注入"
-            return 1
-        fi
-        [ "$i" -lt "$count" ] && sleep 0.4
-    done
-    return 0
+    [ -z "$bin" ] && return 1
+    $bin keyevent 66 </dev/null >>"$LOG" 2>&1
+    return $?
 }
 
 # 逐条输入预置内容
@@ -395,7 +321,7 @@ do_input() {
         return 1
     fi
 
-    local total idx=0 line rc speed okc=0 failc=0 efail=0
+    local total idx=0 line rc speed
     speed=$(get_conf speed.txt 3 | tr -dc '0-9')
     [ -z "$speed" ] && speed=3
     [ "$speed" -gt 60 ] && speed=60
@@ -411,16 +337,12 @@ do_input() {
         [ -z "$line" ] && continue
 
         idx=$((idx + 1))
-        if send_line "$line" "$idx"; then
-            okc=$((okc + 1))
-        else
-            failc=$((failc + 1))
-        fi
-        sleep 0.25
-        if send_enter "$idx"; then
-            :
-        else
-            efail=$((efail + 1))
+        send_line "$line" "$idx"
+        sleep 0.2
+        send_enter
+        rc=$?
+        if [ "$rc" -ne 0 ]; then
+            log "input[$idx] 回车返回码=$rc"
         fi
 
         # 最后一条不再多等
@@ -433,8 +355,7 @@ do_input() {
     done
     exec 9<&-
 
-    log "input: 完成，共 $idx 条（文字成功 $okc / 失败 $failc，回车失败 $efail）"
-    echo "DO_INPUT ok=$okc fail=$failc enter_fail=$efail total=$idx"
+    log "input: 完成，已发送 $idx 条"
     [ "$idx" -gt 0 ]
 }
 
@@ -446,7 +367,7 @@ SCRIPT_FEED_PID=""
 # 进入应用后等待 delay 秒，执行脚本，并把预输入内容逐行写入脚本 stdin（每行=一次回车）
 # 脚本在后台运行，喂完输入即结束，不做任何屏幕模拟输入
 run_script_feed() {
-    local sp delay speed total n=0 line shbin
+    local sp delay speed total n=0 line
 
     sp=$(get_script_path)
     if [ -z "$sp" ]; then
@@ -479,21 +400,12 @@ run_script_feed() {
     fi
     echo "===== $(date '+%m-%d %H:%M:%S') 执行脚本 $sp =====" >> "$slog" 2>/dev/null
 
-    # 执行前记一行体检摘要：脚本自身出问题（换行/解释器/大小异常）时一眼能看出来
-    shbin=$(pick_shell "$sp")
-    {
-        echo "[diag] shell=$shbin size=$(wc -c < "$sp" 2>/dev/null | tr -d ' ')" \
-             "lines=$(wc -l < "$sp" 2>/dev/null | tr -d ' ')" \
-             "crlf=$(awk '/\r$/{n++} END{print n+0}' "$sp" 2>/dev/null)" \
-             "gzip=$(grep -c -E 'gzip|gunzip|zcat' "$sp" 2>/dev/null)"
-    } >> "$slog" 2>/dev/null
-
     if [ "$delay" -gt 0 ]; then
         log "-- 等待 ${delay}s 后执行脚本"
         sleep "$delay"
     fi
 
-    log "-- 执行脚本，开始喂入输入（shell=$shbin）"
+    log "-- 执行脚本，开始喂入输入"
     {
         if [ -f "$CONF/input.txt" ]; then
             while IFS= read -r line || [ -n "$line" ]; do
@@ -508,7 +420,7 @@ run_script_feed() {
             done < "$CONF/input.txt"
         fi
         log "stdin: 输入完成，共 $n 条"
-    } | "$shbin" "$sp" >> "$slog" 2>&1 &
+    } | sh "$sp" >> "$slog" 2>&1 &
 
     SCRIPT_FEED_PID=$!
     log "script feed pid=$SCRIPT_FEED_PID（脚本在后台运行，输出见 script.log）"
@@ -586,26 +498,6 @@ supervisor_alive() {
     pid_matches "$(read_pid "$1/run/supervisor.pid")" supervisor.sh
 }
 
-# 让守护进程尽量脱离启动它的那个进程（管理器 / root shell）
-# 管理器被划掉时，AMS 会按 cgroup 清理该 App 名下的全部进程，
-# setsid 只换了会话，换不掉 cgroup，所以这里额外做两件事：
-#   1) oom_score_adj 拉到最低，避免被 LMK 优先回收
-#   2) 尝试把进程迁到 init 所在的 cgroup（失败也无妨）
-detach_proc() {
-    local p="${1:-$$}" line path
-
-    echo -1000 > "/proc/$p/oom_score_adj" 2>/dev/null
-
-    [ -r /proc/1/cgroup ] || return 0
-    while IFS= read -r line; do
-        path="${line##*:}"
-        [ -z "$path" ] && continue
-        [ -d "/sys/fs/cgroup$path" ] || continue
-        echo "$p" > "/sys/fs/cgroup$path/cgroup.procs" 2>/dev/null
-    done < /proc/1/cgroup
-    return 0
-}
-
 # 拉起看门狗（单例；detach，开机/父 shell 退出都不影响）
 start_supervisor() {
     local moddir="$1" rundir="$1/run"
@@ -618,7 +510,7 @@ start_supervisor() {
     rm -f "$rundir/supervisor.pid" 2>/dev/null
 
     if command -v setsid >/dev/null 2>&1; then
-        setsid nohup sh "$moddir/bin/supervisor.sh" </dev/null >/dev/null 2>&1 &
+        setsid sh "$moddir/bin/supervisor.sh" </dev/null >/dev/null 2>&1 &
     else
         nohup sh "$moddir/bin/supervisor.sh" </dev/null >/dev/null 2>&1 &
     fi

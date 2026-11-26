@@ -437,11 +437,6 @@
     <string name="autoinput_speed_title">Interval per line</string>
     <string name="autoinput_interval_title">Minimum re-trigger gap</string>
     <string name="autoinput_seconds">%1$d s</string>
-    <string name="autoinput_times">%1$d time(s)</string>
-    <string name="autoinput_enter_title">Enter presses per line</string>
-    <string name="autoinput_enter_desc_one">Default, press Enter once per line</string>
-    <string name="autoinput_enter_desc_two">Chinese IMEs often use the first Enter to confirm candidates, pick two in that case</string>
-    <string name="autoinput_enter_desc_three">A few screens only react to a third Enter</string>
     <string name="autoinput_mode_title">Input mode</string>
     <string name="autoinput_mode_script">Feed script</string>
     <string name="autoinput_mode_screen">On-screen typing</string>
@@ -457,9 +452,6 @@
     <string name="autoinput_test_summary">Execute once with the current settings (focus a text field first)</string>
     <string name="autoinput_test_inject">Test here</string>
     <string name="autoinput_last_run">Last run</string>
-    <string name="autoinput_inject_ok">Injected %1$s line(s), check the box</string>
-    <string name="autoinput_inject_partial">%1$s line(s) injected, %2$s failed (see log)</string>
-    <string name="autoinput_inject_enter_fail">Typed %1$s line(s) but every Enter failed (see the Enter test in diagnostics)</string>
     <string name="autoinput_live_title">Live foreground</string>
     <string name="autoinput_live_unknown">Cannot read foreground app</string>
     <string name="autoinput_live_unknown_hint">Could not read the current app from the system, it will refresh shortly</string>
@@ -479,9 +471,6 @@
     <string name="autoinput_mode_script_tip_desc">Lines go to the script stdin only, nothing is typed on screen. Switch to on-screen typing to fill text fields.</string>
     <string name="autoinput_diag_title">Self-check</string>
     <string name="autoinput_diag_summary">Check input command and foreground detection</string>
-    <string name="autoinput_probe_title">Script check</string>
-    <string name="autoinput_probe_summary">Inspect the script itself: line endings, interpreter, decompress code</string>
-    <string name="autoinput_source_app_hint">The service was started by the manager, so swiping it away stops monitoring. Reboot once to switch to boot-time autostart, then it no longer depends on the manager.</string>
     <string name="autoinput_remove_title">Remove monitor</string>
     <string name="autoinput_remove_summary">Stop the daemon and delete scripts and settings</string>
     <string name="autoinput_remove_confirm">This stops the daemon and deletes the boot script and all settings. Continue?</string>
