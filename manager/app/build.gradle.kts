@@ -240,6 +240,8 @@ dependencies {
 
     implementation(libs.hiddenapibypass)
 
+    implementation(libs.zxing.core)
+
     implementation(libs.miuix.ui)
     implementation(libs.miuix.icons)
     implementation(libs.miuix.nav)

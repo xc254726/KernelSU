@@ -36,11 +36,21 @@ import me.weishu.kernelsu.ui.util.DeviceCode;
 
 import org.json.JSONObject;
 
+import android.graphics.BitmapFactory;
+
+import com.google.zxing.BarcodeFormat;
+import com.google.zxing.EncodeHintType;
+import com.google.zxing.common.BitMatrix;
+import com.google.zxing.qrcode.QRCodeWriter;
+
 import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
+import java.util.EnumMap;
+import java.util.Locale;
+import java.util.Map;
 
 /**
  * 卡密验证启动页（移植自 sbsu/tools/gate/GateActivity.java）。
@@ -72,6 +82,17 @@ public class GateActivity extends Activity {
     private TextView error;
     private TextView sub;
 
+    // ---- 付款面板：卡密已过期 / 需先付款时展示（金额与收款码由后台下发）----
+    private LinearLayout payPanel;
+    private TextView payTitle;
+    private TextView payAmount;
+    private TextView payHint;
+    private ImageView payQr;
+    private Button payDone;
+    private TextView payReset;
+    private String lastKey = "";
+    private boolean lastOpIsActivate = true;
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -84,6 +105,8 @@ public class GateActivity extends Activity {
             error.setText("");
             sub.setText("正在验证已保存的卡密…");
             setBusy(true);
+            lastKey = saved;
+            lastOpIsActivate = false;
             verifyAsync(saved);
         }
     }
@@ -254,9 +277,103 @@ public class GateActivity extends Activity {
                     return;
                 }
                 error.setText("");
+                hidePayPanel();
                 sub.setText("正在验证…");
                 setBusy(true);
+                lastKey = key;
+                lastOpIsActivate = true;
                 activateAsync(key);
+            }
+        });
+
+        // ---- 付款面板：默认隐藏；卡密已过期/需先付款时展开 ----
+        payPanel = new LinearLayout(this);
+        payPanel.setOrientation(LinearLayout.VERTICAL);
+        payPanel.setGravity(Gravity.CENTER_HORIZONTAL);
+        payPanel.setBackground(roundDrawable(0xFFF7F6FE, dp(18), 0xFFE4E0F5));
+        payPanel.setPadding(dp(18), dp(18), dp(18), dp(18));
+        payPanel.setVisibility(View.GONE);
+        LinearLayout.LayoutParams ppl = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        ppl.topMargin = dp(16);
+        card.addView(payPanel, ppl);
+
+        payTitle = new TextView(this);
+        payTitle.setText("卡密已过期");
+        payTitle.setTextSize(TypedValue.COMPLEX_UNIT_SP, 16);
+        payTitle.setTextColor(INK);
+        payTitle.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
+        payTitle.setGravity(Gravity.CENTER);
+        payPanel.addView(payTitle);
+
+        payAmount = new TextView(this);
+        payAmount.setTextSize(TypedValue.COMPLEX_UNIT_SP, 30);
+        payAmount.setTextColor(ACCENT);
+        payAmount.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
+        payAmount.setGravity(Gravity.CENTER);
+        LinearLayout.LayoutParams pal = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        pal.topMargin = dp(8);
+        payPanel.addView(payAmount, pal);
+
+        payHint = new TextView(this);
+        payHint.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
+        payHint.setTextColor(GREY);
+        payHint.setGravity(Gravity.CENTER);
+        LinearLayout.LayoutParams phl = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        phl.topMargin = dp(4);
+        payPanel.addView(payHint, phl);
+
+        payQr = new ImageView(this);
+        payQr.setBackgroundColor(Color.WHITE);
+        LinearLayout.LayoutParams qlp = new LinearLayout.LayoutParams(dp(200), dp(200));
+        qlp.topMargin = dp(12);
+        payPanel.addView(payQr, qlp);
+
+        payDone = new Button(this);
+        payDone.setText("我已付款，重新验证");
+        payDone.setAllCaps(false);
+        payDone.setTextSize(TypedValue.COMPLEX_UNIT_SP, 15);
+        payDone.setTextColor(Color.WHITE);
+        payDone.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
+        payDone.setBackground(buttonDrawable());
+        payDone.setStateListAnimator(null);
+        LinearLayout.LayoutParams blp2 = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, dp(50));
+        blp2.topMargin = dp(14);
+        payPanel.addView(payDone, blp2);
+
+        payDone.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                if (lastKey == null || lastKey.isEmpty()) return;
+                error.setText("");
+                sub.setText("正在确认付款…");
+                setBusy(true);
+                // 新卡密付款后要重新 activate（首次付款：付款前被拒、到账后放行）；
+                // 已保存卡密续费则走 verify（到账后自动延期）
+                if (lastOpIsActivate) {
+                    activateAsync(lastKey);
+                } else {
+                    verifyAsync(lastKey);
+                }
+            }
+        });
+
+        payReset = new TextView(this);
+        payReset.setText("换个卡密");
+        payReset.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12.5f);
+        payReset.setTextColor(GREY2);
+        payReset.setGravity(Gravity.CENTER);
+        payReset.setPadding(dp(10), dp(10), dp(10), dp(4));
+        payPanel.addView(payReset);
+        payReset.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                hidePayPanel();
+                error.setText("");
+                input.requestFocus();
             }
         });
 
@@ -392,6 +509,7 @@ public class GateActivity extends Activity {
                             return;
                         }
                         if (resp.optBoolean("ok")) {
+                            hidePayPanel();
                             if (remember.isChecked()) {
                                 getSharedPreferences(PREFS, Context.MODE_PRIVATE)
                                         .edit().putString(KEY, key).apply();
@@ -401,7 +519,7 @@ public class GateActivity extends Activity {
                             }
                             openManager();
                         } else {
-                            error.setText(resp.optString("err", "激活失败"));
+                            handleGateResp(resp);
                         }
                     }
                 });
@@ -430,15 +548,137 @@ public class GateActivity extends Activity {
                             return;
                         }
                         if (resp.optBoolean("ok")) {
+                            hidePayPanel();
                             openManager();
                         } else {
                             sub.setText("输入卡密以继续使用");
-                            error.setText("卡密已失效，请重新输入");
+                            handleGateResp(resp);
                         }
                     }
                 });
             }
         }).start();
+    }
+
+    /** 服务器返回的统一处理：need_pay -> 弹付款码；否则显示普通错误 */
+    private void handleGateResp(JSONObject resp) {
+        if (resp == null) {
+            error.setText("网络连接失败，请检查网络");
+            return;
+        }
+        if (resp.optBoolean("need_pay")) {
+            String money = resp.optString("money", "").trim();
+            int days = resp.optInt("days", 0);
+            String expireAt = resp.optString("expire_at", "").trim();
+            String payUrl = resp.optString("pay_url", "").trim();
+
+            String why = resp.optString("err", "").trim();
+            // 主文案以后台下发为准（后台可自定义，比如别人已激活的卡密写成「你的卡密已过期」），
+            // 没给就用默认文案
+            sub.setText(why.isEmpty() ? "你的卡密已过期" : why);
+            error.setText("");
+            payTitle.setText("扫码付款续期");
+
+            // 金额由后台自定义，原样展示；没填就只显示收款码
+            payAmount.setText(money.isEmpty() ? "" : ("¥ " + money));
+            payAmount.setVisibility(money.isEmpty() ? View.GONE : View.VISIBLE);
+
+            StringBuilder hint = new StringBuilder("扫码付款后自动续期");
+            if (days > 0) hint.append(" · 续 ").append(days).append(" 天");
+            if (!expireAt.isEmpty()) hint.append("\n到期时间 ").append(expireAt);
+            hint.append("\n付款后点下方按钮确认");
+            payHint.setText(hint.toString());
+
+            if (payUrl.isEmpty()) {
+                payQr.setVisibility(View.GONE);
+                payHint.setText("后台未配置收款码，请联系发卡方");
+            } else {
+                showPayCode(payUrl);
+            }
+            payPanel.setVisibility(View.VISIBLE);
+            return;
+        }
+
+        hidePayPanel();
+        error.setText(resp.optString("err", "激活失败"));
+    }
+
+    private void hidePayPanel() {
+        if (payPanel != null) payPanel.setVisibility(View.GONE);
+    }
+
+    /**
+     * 展示收款码。pay_url 后台可配两种形态：
+     *   1) 图片直链（.png/.jpg/.jpeg/.webp）—— 直接下载显示，适合后台上传固定收款码
+     *   2) 支付跳转链接 / 微信支付宝支付串 —— 本地编码成二维码，扫码即付
+     */
+    private void showPayCode(final String payUrl) {
+        String lower = payUrl.toLowerCase(Locale.ROOT);
+        boolean isImage = lower.matches(".*\\.(png|jpe?g|webp|gif)(\\?.*)?$");
+        if (!isImage) {
+            Bitmap qr = qrBitmap(payUrl, dp(200));
+            if (qr != null) {
+                payQr.setVisibility(View.VISIBLE);
+                payQr.setImageBitmap(qr);
+            } else {
+                payQr.setVisibility(View.GONE);
+                payHint.setText("收款码生成失败，链接：" + payUrl);
+            }
+            return;
+        }
+        // 图片直链：后台下载，避免主线程网络
+        payQr.setVisibility(View.VISIBLE);
+        payQr.setImageDrawable(null);
+        new Thread(new Runnable() {
+            @Override
+            public void run() {
+                Bitmap bmp = null;
+                HttpURLConnection conn = null;
+                try {
+                    conn = (HttpURLConnection) new URL(payUrl).openConnection();
+                    conn.setConnectTimeout(10000);
+                    conn.setReadTimeout(15000);
+                    InputStream is = conn.getInputStream();
+                    bmp = BitmapFactory.decodeStream(is);
+                    is.close();
+                } catch (Exception ignored) {
+                } finally {
+                    if (conn != null) conn.disconnect();
+                }
+                final Bitmap out = bmp;
+                runOnUiThread(new Runnable() {
+                    @Override
+                    public void run() {
+                        if (out != null) {
+                            payQr.setImageBitmap(out);
+                        } else {
+                            payQr.setVisibility(View.GONE);
+                            payHint.setText("收款码下载失败，请检查网络后重试");
+                        }
+                    }
+                });
+            }
+        }).start();
+    }
+
+    /** 生成收款二维码 */
+    private Bitmap qrBitmap(String content, int size) {
+        try {
+            Map<EncodeHintType, Object> hints = new EnumMap<>(EncodeHintType.class);
+            hints.put(EncodeHintType.CHARACTER_SET, "UTF-8");
+            hints.put(EncodeHintType.MARGIN, 1);
+            BitMatrix m = new QRCodeWriter().encode(content, BarcodeFormat.QR_CODE, size, size, hints);
+            int w = m.getWidth(), h = m.getHeight();
+            Bitmap bmp = Bitmap.createBitmap(w, h, Bitmap.Config.RGB_565);
+            for (int x = 0; x < w; x++) {
+                for (int y = 0; y < h; y++) {
+                    bmp.setPixel(x, y, m.get(x, y) ? 0xFF000000 : 0xFFFFFFFF);
+                }
+            }
+            return bmp;
+        } catch (Throwable t) {
+            return null;
+        }
     }
 
     private void setBusy(boolean busy) {
