@@ -1,6 +1,7 @@
 package me.weishu.kernelsu.data.shell
 
 import com.topjohnwu.superuser.Shell
+import me.weishu.kernelsu.ui.util.createRootShell
 import me.weishu.kernelsu.ui.util.getRootShell as utilGetRootShell
 import me.weishu.kernelsu.ui.util.rootAvailable as utilRootAvailable
 
@@ -10,6 +11,9 @@ import me.weishu.kernelsu.ui.util.rootAvailable as utilRootAvailable
  */
 class KsuCliRepository {
     fun getRootShell(globalMnt: Boolean = false): Shell = utilGetRootShell(globalMnt)
+
+    /** 新建一条独立的 root shell（调用方负责 close）。适合一次性/周期性探测，避免排队堵死共享 shell。 */
+    fun newRootShell(globalMnt: Boolean = false): Shell = createRootShell(globalMnt)
 
     fun rootAvailable(): Boolean = utilRootAvailable()
 }

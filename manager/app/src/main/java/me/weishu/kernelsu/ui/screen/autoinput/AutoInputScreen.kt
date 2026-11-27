@@ -122,7 +122,7 @@ private const val BOOT_SCRIPT = "/data/adb/service.d/chen-auto-input.sh"
 // 越狱模式（Magica `ksud late-load`）只执行 late-load.d 里的脚本，不会执行 service.d，
 // 所以启动脚本要双份安装；否则越狱重启后监听守护不会自己起来。
 private const val LATE_LOAD_SCRIPT = "/data/adb/late-load.d/chen-auto-input.sh"
-private const val BUNDLED_VERSION = "22"
+private const val BUNDLED_VERSION = "23"
 
 // 调试卡片（实时前台 / 最近运行记录）默认隐藏；需要排查时置 true 恢复显示
 private val SHOW_DEBUG_CARDS = false
@@ -139,17 +139,20 @@ private val SCRIPT_NAMES = listOf(
     "applist.sh",
 )
 
+// 状态轮询脚本：每几秒跑一次，必须**绝对轻量**。
+//
+// 这里曾经包含 get_foreground_pkg（dumpsys activity activities）和
+// dumpsys input_method —— 那两条命令在部分 ROM 上单次就要好几秒、输出几 MB。
+// 它们原本只是喂「实时前台 / 最近运行记录」两张调试卡片（现已隐藏），却仍在
+// 每轮执行：结果是把 root shell 的队列彻底堵死，之后连 `id -u` 都排不上，
+// 整个 app 表现为「进一次监听页就丢 root」（首页顶红条、监听页显示需要 root）。
+// 所以：只保留读配置文件 + status.sh，任何 dumpsys 都不许进这里。
 private const val STATUS_SCRIPT = """
 CONF=/data/adb/auto_input
 echo UID=${'$'}(id -u)
 [ -d ${'$'}CONF/bin ] && echo DIR=1 || echo DIR=0
 { [ -f /data/adb/service.d/chen-auto-input.sh ] || [ -f /data/adb/late-load.d/chen-auto-input.sh ]; } && echo BOOT=1 || echo BOOT=0
-sh ${'$'}CONF/bin/status.sh 2>/dev/null
-. ${'$'}CONF/bin/common.sh
-echo FG=${'$'}(get_foreground_pkg)
-FOCUS=0
-dumpsys input_method 2>/dev/null | grep -q 'mInputShown=true' && FOCUS=1
-echo FOCUS=${'$'}FOCUS
+timeout 5 sh ${'$'}CONF/bin/status.sh 2>/dev/null
 """
 
 private const val READ_CONFIG_SCRIPT = """
@@ -259,6 +262,25 @@ private fun runRoot(ksuCli: KsuCliRepository, script: String): String {
     val out = ArrayList<String>()
     val err = ArrayList<String>()
     runCatching { ksuCli.getRootShell().newJob().add(script).to(out, err).exec() }
+    return out.joinToString("\n")
+}
+
+/**
+ * 一次性 root 命令：每次新建独立 shell，用完立刻关闭。
+ *
+ * 页面里**周期性**的探测必须走这里，不能复用 KsuCli.SHELL：一旦某条命令卡住
+ * （历史教训：dumpsys），共享 shell 的命令队列会越排越长，之后连 `id -u` 都
+ * 排不上，表现就是「进一次监听页，root 就没了」。独立 shell 之间互不影响，
+ * 单次卡住只影响那一次探测。
+ */
+private fun runRootIsolated(ksuCli: KsuCliRepository, script: String): String {
+    val out = ArrayList<String>()
+    val err = ArrayList<String>()
+    runCatching {
+        ksuCli.newRootShell().use { sh ->
+            sh.newJob().add(script).to(out, err).exec()
+        }
+    }
     return out.joinToString("\n")
 }
 
@@ -412,11 +434,19 @@ fun AutoInputScreen() {
     val msgScriptNotFound = stringResource(R.string.autoinput_script_not_found)
     val msgNoRoot = stringResource(R.string.autoinput_need_root_toast)
 
-    suspend fun refresh(): AutoInputStatus {
-        val rawStatus = withContext(Dispatchers.IO) { runRoot(ksuCli, STATUS_SCRIPT) }
+    suspend fun refresh(readConfig: Boolean = true): AutoInputStatus {
+        // 状态探测走独立 shell：这条路径每几秒一次，绝不能和写配置 / 重启守护
+        // 共用同一条 shell —— 一旦某次命令卡住，队列会越排越长，最终连 id -u
+        // 都排不上，整个 app 就表现为「拿不到 root」。
+        val rawStatus = withContext(Dispatchers.IO) { runRootIsolated(ksuCli, STATUS_SCRIPT) }
         val st = parseStatus(rawStatus)
         status = st
-        config = parseConfig(withContext(Dispatchers.IO) { runRoot(ksuCli, READ_CONFIG_SCRIPT) })
+        // 配置只在首次进入 / 保存后读；轮询时跳过，少一次 root 往返
+        if (readConfig) {
+            config = parseConfig(
+                withContext(Dispatchers.IO) { runRootIsolated(ksuCli, READ_CONFIG_SCRIPT) },
+            )
+        }
         // 最近运行记录调试卡片默认隐藏，隐藏时不再每轮拉日志
         lastRun = if (SHOW_DEBUG_CARDS) {
             withContext(Dispatchers.IO) {
@@ -451,7 +481,7 @@ fun AutoInputScreen() {
         // 先探一次 root：状态脚本里 echo 了 id -u，不是 UID=0 就说明没拿到 root shell。
         // 没有 root 时写 /data/adb 一律 Permission denied，先不跑安装流程，只显示「需要 root」，
         // 并每 5 秒重探一次——用户去 KernelSU/Magisk 里点了授权后会自动接上，不用退出重进。
-        var probe = withContext(Dispatchers.IO) { runRoot(ksuCli, STATUS_SCRIPT) }
+        var probe = withContext(Dispatchers.IO) { runRootIsolated(ksuCli, STATUS_SCRIPT) }
         fun probeHasRoot() = probe.lineSequence().any { it.trim() == "UID=0" }
         if (!probeHasRoot()) {
             pmApps = withContext(Dispatchers.IO) { loadPmApps(context) }
@@ -459,13 +489,13 @@ fun AutoInputScreen() {
             loaded = true
             while (!probeHasRoot()) {
                 delay(5000)
-                probe = withContext(Dispatchers.IO) { runRoot(ksuCli, STATUS_SCRIPT) }
+                probe = withContext(Dispatchers.IO) { runRootIsolated(ksuCli, STATUS_SCRIPT) }
             }
         }
         val version = withContext(Dispatchers.IO) {
             runRoot(ksuCli, "cat $CONF_DIR/.bundled_version 2>/dev/null")
         }.trim()
-        val bootOk = withContext(Dispatchers.IO) { runRoot(ksuCli, STATUS_SCRIPT) }.contains("BOOT=1")
+        val bootOk = withContext(Dispatchers.IO) { runRootIsolated(ksuCli, STATUS_SCRIPT) }.contains("BOOT=1")
         var upgraded = false
         if (version != BUNDLED_VERSION || !bootOk) {
             busy = true
@@ -484,9 +514,10 @@ fun AutoInputScreen() {
         // 守护进程被 ROM 杀掉的场景很常见：页面停留期间每分钟自愈一次
         var lastHeal = 0L
         while (true) {
-            delay(4000)
+            // 轮询只读状态不读整份配置：少一次 root 往返，也避免频繁 IO
+            delay(6000)
             if (busy) continue
-            val cur = refresh()
+            val cur = refresh(readConfig = false)
             val now = System.currentTimeMillis()
             if (cur.installed && cur.enabled && !cur.daemonRunning && now - lastHeal > 60_000) {
                 lastHeal = now

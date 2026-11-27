@@ -95,6 +95,9 @@ object KsuCli {
             if (now - last < REBUILD_INTERVAL_MS) return cached
             // isRoot 命中后读的是 libsu 内部缓存的状态，几乎无开销
             if (cached.isRoot) return cached
+            // 坏实例（内核尚未就绪 / 通道失效）：释放掉再重建，
+            // 否则每轮重建都会漏掉一个 shell 进程，很快堆积成几十个
+            runCatching { cached.close() }
         }
 
         val fresh = createRootShell(globalMnt)
@@ -751,7 +754,13 @@ fun flashAnyKernelZip(
 
 fun rootAvailable(): Boolean {
     val shell = getRootShell()
-    return shell.isRoot
+    if (shell.isRoot) return true
+    // 共享 shell 可能被历史命令堵住、或状态判定过期（页面里跑过重命令后常见），
+    // 直接采信会误报「获取 Root 失败」。这里用一条独立 shell 复核一次：
+    // 真没 root 时就是多 fork 一次，代价可接受；有 root 时能立刻纠正误判。
+    return runCatching {
+        withNewRootShell { ShellUtils.fastCmd(this, "id -u").trim() == "0" }
+    }.getOrDefault(false)
 }
 
 suspend fun getCurrentKmi(): String = withContext(Dispatchers.IO) {
