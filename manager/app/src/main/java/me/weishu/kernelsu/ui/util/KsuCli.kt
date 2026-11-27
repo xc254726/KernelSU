@@ -91,6 +91,22 @@ fun Uri.getFileName(context: Context): String? {
 fun createRootShell(globalMnt: Boolean = false): Shell {
     Shell.enableVerboseLogging = BuildConfig.DEBUG
     val builder = Shell.Builder.create()
+    // 普通 root shell 先走系统 su：Magisk(面具) / APatch / KernelSU 都提供它，是最通用的入口。
+    //
+    // 原来的顺序是 ksud 优先，而 getKsuDaemonPath() 指向本 app 自带目录里的 libksud.so——
+    // 这个文件在任何设备上都存在，进程总能起来，只是连不上内核里的 KSU 时会立刻退出。
+    // ProcessBuilder 能把进程拉起来，所以 build() 不抛异常，下面的 catch 永远进不去，
+    // 也就永远 fallback 不到 su：装在没有 KSU 内核的设备（比如面具 root）上就是
+    // 「明明有 root，app 却拿不到」。
+    //
+    // globalMnt 是 KSU 专有的全局挂载语义，保持 ksud 优先不动。
+    if (!globalMnt) {
+        try {
+            return builder.build("su")
+        } catch (e: Throwable) {
+            Log.w(TAG, "su unavailable, falling back to ksud: ", e)
+        }
+    }
     return try {
         if (globalMnt) {
             builder.build(getKsuDaemonPath(), "debug", "su", "-g")
