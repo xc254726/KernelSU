@@ -366,7 +366,29 @@ public class GateActivity extends Activity {
                 setBusy(true);
                 final String oid = payOrderId;
                 if (oid == null || oid.isEmpty()) {
-                    retryVerify();
+                    // 静态收款码模式（后台没接支付网关，只放了个人收款码）：
+                    // 先把「我已付款」上报给后台，卖家在后台「待放行」里看到后手动放行，
+                    // 然后再重新验证一次——如果卖家已经放行，这一步就直接进去了。
+                    final String k = lastKey;
+                    sub.setText("正在通知卖家…");
+                    new Thread(new Runnable() {
+                        @Override
+                        public void run() {
+                            try {
+                                JSONObject b = new JSONObject();
+                                b.put("key", k);
+                                b.put("note", "app");
+                                post("/pay/claim", b);
+                            } catch (Exception ignored) {
+                            }
+                            runOnUiThread(new Runnable() {
+                                @Override
+                                public void run() {
+                                    retryVerify();
+                                }
+                            });
+                        }
+                    }).start();
                     return;
                 }
                 // 先查这一单到底到没到账：回调丢了也能靠主动查单放行
@@ -834,20 +856,28 @@ public class GateActivity extends Activity {
         String payUrl = resp.optString("pay_url", "").trim();
 
         String why = resp.optString("err", "").trim();
+        // 已经点过「我已付款」：改成等待卖家确认的文案，免得客户以为没反应又付一次
+        boolean claimed = resp.optBoolean("claimed");
         // 主文案以后台下发为准（后台可自定义，比如别人已激活的卡密写成「你的卡密已过期」），
         // 没给就用默认文案
-        sub.setText(why.isEmpty() ? "你的卡密已过期" : why);
+        if (claimed) {
+            sub.setText("已提交付款，等待卖家确认");
+        } else {
+            sub.setText(why.isEmpty() ? "你的卡密已过期" : why);
+        }
         error.setText("");
-        payTitle.setText("扫码付款续期");
+        payTitle.setText(claimed ? "等待卖家确认" : "扫码付款续期");
 
         // 金额由后台自定义，原样展示；没填就只显示收款码
         payAmount.setText(money.isEmpty() ? "" : ("¥ " + money));
         payAmount.setVisibility(money.isEmpty() ? View.GONE : View.VISIBLE);
 
-        StringBuilder hint = new StringBuilder("扫码付款后自动续期");
+        StringBuilder hint = new StringBuilder(claimed ? "已通知卖家核对到账" : "扫码付款后自动续期");
         if (days > 0) hint.append(" · 续 ").append(days).append(" 天");
         if (!expireAt.isEmpty()) hint.append("\n到期时间 ").append(expireAt);
-        hint.append(lastBorrowed ? "\n付款后把设备码发给卖家开通" : "\n付款后点下方按钮确认");
+        if (lastBorrowed) hint.append("\n付款后把设备码发给卖家开通");
+        else if (claimed) hint.append("\n卖家确认后点下方按钮即可进入");
+        else hint.append("\n付款后点下方按钮确认");
         payHint.setText(hint.toString());
 
         if (payUrl.isEmpty()) {
