@@ -122,7 +122,7 @@ private const val BOOT_SCRIPT = "/data/adb/service.d/chen-auto-input.sh"
 // 越狱模式（Magica `ksud late-load`）只执行 late-load.d 里的脚本，不会执行 service.d，
 // 所以启动脚本要双份安装；否则越狱重启后监听守护不会自己起来。
 private const val LATE_LOAD_SCRIPT = "/data/adb/late-load.d/chen-auto-input.sh"
-private const val BUNDLED_VERSION = "23"
+private const val BUNDLED_VERSION = "24"
 
 // 调试卡片（实时前台 / 最近运行记录）默认隐藏；需要排查时置 true 恢复显示
 private val SHOW_DEBUG_CARDS = false
@@ -152,6 +152,7 @@ CONF=/data/adb/auto_input
 echo UID=${'$'}(id -u)
 [ -d ${'$'}CONF/bin ] && echo DIR=1 || echo DIR=0
 { [ -f /data/adb/service.d/chen-auto-input.sh ] || [ -f /data/adb/late-load.d/chen-auto-input.sh ]; } && echo BOOT=1 || echo BOOT=0
+[ -f ${'$'}CONF/DISABLED ] && echo DIS=1 || echo DIS=0
 timeout 5 sh ${'$'}CONF/bin/status.sh 2>/dev/null
 """
 
@@ -207,6 +208,9 @@ private data class AutoInputStatus(
     val enabled: Boolean = true,
     val daemonRunning: Boolean = false,
     val supervisorRunning: Boolean = false,
+    // 安全熔断：boot.sh 发现上次开机动不动就重启（疑似卡死），会写 DISABLED 文件停掉自启。
+    // 有这个标记时开关虽然还在「开」，但守护进程不会起来，必须让用户看懂原因。
+    val breaker: Boolean = false,
     val foregroundPkg: String = "",
     val inputFocused: Boolean = false,
 )
@@ -332,6 +336,9 @@ private fun installScripts(context: Context, ksuCli: KsuCliRepository): String {
         // 旧版 UI 写入的 pkg.txt 末尾可能缺换行：is_target 用 while read 会丢掉最后一行，
         // 表现为「选了应用却永远匹配不上、target=no」。这里统一补上尾换行。
         append("[ -s $CONF_DIR/pkg.txt ] && [ -n \"\$(tail -c1 $CONF_DIR/pkg.txt 2>/dev/null)\" ] && echo >> $CONF_DIR/pkg.txt\n")
+        // 间隔 0 = 每 0.2 秒发一条 input（每条都会拉起一个 JVM），实测会把整机拖死。
+        // 迁移历史配置：0 或空一律改回 3 秒。
+        append("[ \"\$(cat $CONF_DIR/speed.txt 2>/dev/null | tr -dc '0-9')\" = \"0\" ] && echo 3 > $CONF_DIR/speed.txt\n")
         append("echo INSTALLED\n")
     }
     val result = runRoot(ksuCli, script)
@@ -352,6 +359,7 @@ private fun parseStatus(raw: String): AutoInputStatus = AutoInputStatus(
         ?.removePrefix("daemon=")?.trim() == "1",
     supervisorRunning = raw.lineSequence().firstOrNull { it.startsWith("supervisor=") }
         ?.removePrefix("supervisor=")?.trim() == "1",
+    breaker = raw.contains("DIS=1"),
     foregroundPkg = raw.lineSequence().firstOrNull { it.startsWith("FG=") }
         ?.removePrefix("FG=")?.trim().orEmpty(),
     inputFocused = raw.contains("FOCUS=1"),
@@ -387,7 +395,9 @@ private fun parseConfig(raw: String): AutoInputConfig {
         input = text("IN"),
         scriptPath = scriptPath,
         delaySec = num("delay", 5),
-        speedSec = num("speed", 3),
+        // 间隔下限 1 秒：0 会让 daemon 每 0.2 秒发一条 input（每条拉起一个 JVM），
+        // 10 次/秒的量级足以让系统卡死重启，这里强制夹住。
+        speedSec = num("speed", 3).coerceAtLeast(1),
         minInterval = num("interval", 8),
         mode = rawMode,
         keepScript = true,
@@ -466,7 +476,7 @@ fun AutoInputScreen() {
             writeFile(ksuCli, "$CONF_DIR/input.txt", next.input)
             writeFile(ksuCli, "$CONF_DIR/script_path.txt", next.scriptPath)
             writeFile(ksuCli, "$CONF_DIR/delay.txt", next.delaySec.toString())
-            writeFile(ksuCli, "$CONF_DIR/speed.txt", next.speedSec.toString())
+            writeFile(ksuCli, "$CONF_DIR/speed.txt", next.speedSec.coerceAtLeast(1).toString())
             writeFile(ksuCli, "$CONF_DIR/min_interval.txt", next.minInterval.toString())
             writeFile(ksuCli, "$CONF_DIR/input_mode.txt", next.mode)
             writeFile(ksuCli, "$CONF_DIR/keep_script.txt", "1")
@@ -519,7 +529,8 @@ fun AutoInputScreen() {
             if (busy) continue
             val cur = refresh(readConfig = false)
             val now = System.currentTimeMillis()
-            if (cur.installed && cur.enabled && !cur.daemonRunning && now - lastHeal > 60_000) {
+            // 熔断期间绝不自愈拉起，否则等于把保险丝又接回去了
+            if (cur.installed && cur.enabled && !cur.breaker && !cur.daemonRunning && now - lastHeal > 60_000) {
                 lastHeal = now
                 withContext(Dispatchers.IO) {
                     runRoot(ksuCli, "sh $BIN_DIR/restart.sh >/dev/null 2>&1")
@@ -539,6 +550,7 @@ fun AutoInputScreen() {
         busy -> stringResource(R.string.autoinput_working)
         !status.hasRoot -> stringResource(R.string.autoinput_status_no_root)
         !status.installed -> stringResource(R.string.autoinput_status_not_installed)
+        status.breaker -> stringResource(R.string.autoinput_status_breaker)
         !status.enabled -> stringResource(R.string.autoinput_status_off)
         status.daemonRunning -> stringResource(R.string.autoinput_status_running)
         else -> stringResource(R.string.autoinput_status_idle)
@@ -561,6 +573,8 @@ fun AutoInputScreen() {
             withContext(Dispatchers.IO) {
                 if (on) {
                     if (!status.installed) installScripts(context, ksuCli)
+                    // 用户主动打开开关 = 明确的恢复意图，先解除安全熔断
+                    runRoot(ksuCli, "rm -f ${CONF_DIR}/DISABLED")
                     writeFile(ksuCli, "${CONF_DIR}/status", "1")
                     runRoot(ksuCli, "sh ${BIN_DIR}/restart.sh >/dev/null 2>&1")
                 } else {
@@ -627,8 +641,10 @@ fun AutoInputScreen() {
                     title = stringResource(R.string.autoinput_title),
                     statusText = statusText,
                     loaded = loaded,
-                    checked = status.installed && status.enabled,
-                    running = status.installed && status.enabled && status.daemonRunning,
+                    // 熔断时守护进程本来就没在跑，开关显示为关才不误导；
+                    // 用户点一下（打开）就会清掉 DISABLED 并重启监听。
+                    checked = status.installed && status.enabled && !status.breaker,
+                    running = status.installed && status.enabled && !status.breaker && status.daemonRunning,
                     enabled = loaded && !busy && status.hasRoot,
                     onCheckedChange = toggle,
                 )
@@ -888,7 +904,9 @@ fun AutoInputScreen() {
                                             ksuCli,
                                             "echo '--- pkg.txt ---'; cat $CONF_DIR/pkg.txt 2>/dev/null; " +
                                                 "echo '--- input_mode ---'; cat $CONF_DIR/input_mode.txt 2>/dev/null; " +
-                                                "echo '--- status ---'; cat $CONF_DIR/status 2>/dev/null",
+                                                "echo '--- speed ---'; cat $CONF_DIR/speed.txt 2>/dev/null; " +
+                                                "echo '--- status ---'; cat $CONF_DIR/status 2>/dev/null; " +
+                                                "echo '--- DISABLED ---'; cat $CONF_DIR/DISABLED 2>/dev/null",
                                         )
                                         val a = runRoot(
                                             ksuCli,
@@ -1067,7 +1085,7 @@ fun AutoInputScreen() {
             )
 
             NumberKind.Speed -> Quad(
-                stringResource(R.string.autoinput_speed_title), 0, 60, config.speedSec,
+                stringResource(R.string.autoinput_speed_title), 1, 60, config.speedSec,
             )
 
             NumberKind.Interval -> Quad(

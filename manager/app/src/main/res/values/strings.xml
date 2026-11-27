@@ -414,6 +414,7 @@
     <string name="autoinput_working">Working…</string>
     <string name="autoinput_status_no_root">Root required</string>
     <string name="autoinput_status_not_installed">Not installed</string>
+    <string name="autoinput_status_breaker">Auto-start paused for safety · toggle off/on to restore</string>
     <string name="autoinput_status_off">Disabled</string>
     <string name="autoinput_status_running">Running · waiting for target app</string>
     <string name="autoinput_status_idle">Enabled · daemon starting</string>

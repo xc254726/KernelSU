@@ -406,6 +406,7 @@
     <string name="autoinput_working">处理中…</string>
     <string name="autoinput_status_no_root">需要 root 权限</string>
     <string name="autoinput_status_not_installed">未安装</string>
+    <string name="autoinput_status_breaker">已安全熔断 · 关闭再打开开关即可恢复</string>
     <string name="autoinput_status_off">已关闭</string>
     <string name="autoinput_status_running">运行中 · 等待目标应用</string>
     <string name="autoinput_status_idle">已开启 · 守护进程启动中</string>
