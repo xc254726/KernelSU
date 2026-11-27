@@ -48,23 +48,42 @@ is_valid_pkg() {
 }
 
 # 获取当前前台应用包名
-get_foreground_pkg() {
-    local pkg=""
+#
+# 这里原来第一顺位就是 dumpsys activity activities（全量输出）：前台是短视频/IM
+# 这类重应用时，单次输出能到几 MB、耗时数秒，而 daemon 每 1~2 秒就要问一次。
+# 反复 dump 会把 system_server 的 dump 锁占满，表现就是「一进目标应用整机卡死」。
+# 现在改成：先问 window（输出小一个量级），拿不到才退回 activity 全量；
+# 每条 dump 都套 timeout，单次卡住也不会把 daemon 挂在里面；结果缓存 2 秒，
+# 触发灵敏度不变但 dump 频率再降一半。
+FG_CACHE_PKG=""
+FG_CACHE_TS=0
 
-    pkg=$(dumpsys activity activities 2>/dev/null \
-        | grep -m1 'topResumedActivity' \
-        | sed -E 's/.*u[0-9]+[[:space:]]+([A-Za-z0-9_.]+)\/[^ ]*.*/\1/')
+get_foreground_pkg() {
+    local pkg="" now
+
+    now=$(date +%s 2>/dev/null)
+    [ -z "$now" ] && now=0
+    if [ -n "$FG_CACHE_PKG" ] && [ $((now - FG_CACHE_TS)) -lt 2 ]; then
+        printf '%s' "$FG_CACHE_PKG"
+        return 0
+    fi
+
+    pkg=$(timeout 3 dumpsys window 2>/dev/null \
+        | grep -m1 'mCurrentFocus' \
+        | sed -E 's/.*u[0-9]+[[:space:]]+([A-Za-z0-9_.]+)\/[^ }]*.*/\1/')
 
     if ! is_valid_pkg "$pkg"; then
-        pkg=$(dumpsys window 2>/dev/null \
-            | grep -m1 'mCurrentFocus' \
-            | sed -E 's/.*u[0-9]+[[:space:]]+([A-Za-z0-9_.]+)\/[^ }]*.*/\1/')
+        pkg=$(timeout 5 dumpsys activity activities 2>/dev/null \
+            | grep -m1 'topResumedActivity' \
+            | sed -E 's/.*u[0-9]+[[:space:]]+([A-Za-z0-9_.]+)\/[^ ]*.*/\1/')
     fi
 
     if ! is_valid_pkg "$pkg"; then
         pkg=""
     fi
 
+    FG_CACHE_PKG="$pkg"
+    FG_CACHE_TS="$now"
     printf '%s' "$pkg"
 }
 
@@ -270,7 +289,9 @@ send_line() {
     fi
 
     # 策略 1：input text（引号整体传参，命令行内空格无需转义）
-    out=$($bin text "$text" </dev/null 2>&1)
+    # 套 timeout：input 在系统繁忙时可能长时间不返回，卡住就会把整个触发流程挂在
+    # 那一条上（后面每条都发不出去，用户看起来就是"卡死了"）。
+    out=$(timeout 10 "$bin" text "$text" </dev/null 2>&1)
     rc=$?
     if [ "$rc" -eq 0 ] && [ -z "$out" ]; then
         log "input[$idx] ok(text): $text"
@@ -282,7 +303,7 @@ send_line() {
     if has_adbkeyboard; then
         b64=$(printf '%s' "$text" | base64 2>/dev/null | tr -d '\r\n')
         if [ -n "$b64" ]; then
-            out=$(am broadcast -a ADB_INPUT_B64 --es msg "$b64" </dev/null 2>&1)
+            out=$(timeout 10 am broadcast -a ADB_INPUT_B64 --es msg "$b64" </dev/null 2>&1)
             rc=$?
             if [ "$rc" -eq 0 ] && ! printf '%s' "$out" | grep -qi 'error\|exception'; then
                 log "input[$idx] ok(adbkeyboard): $text"
@@ -301,7 +322,7 @@ send_enter() {
     local bin
     bin=$(resolve_input)
     [ -z "$bin" ] && return 1
-    $bin keyevent 66 </dev/null >>"$LOG" 2>&1
+    timeout 10 "$bin" keyevent 66 </dev/null >>"$LOG" 2>&1
     return $?
 }
 
@@ -325,6 +346,9 @@ do_input() {
     speed=$(get_conf speed.txt 3 | tr -dc '0-9')
     [ -z "$speed" ] && speed=3
     [ "$speed" -gt 60 ] && speed=60
+    # 间隔下限 1 秒：0 会让每条输入之间只隔 0.2s，等于连续拉起 input 进程，
+    # 重应用前台时足以把整机拖死。这里做最后一道夹取（UI 里也已经限制）。
+    [ "$speed" -lt 1 ] && speed=1
 
     total=$(grep -c '[^[:space:]]' "$f" 2>/dev/null)
     [ -z "$total" ] && total=0
@@ -384,6 +408,9 @@ run_script_feed() {
     speed=$(get_conf speed.txt 3 | tr -dc '0-9')
     [ -z "$speed" ] && speed=3
     [ "$speed" -gt 60 ] && speed=60
+    # 间隔下限 1 秒：0 会让每条输入之间只隔 0.2s，等于连续拉起 input 进程，
+    # 重应用前台时足以把整机拖死。这里做最后一道夹取（UI 里也已经限制）。
+    [ "$speed" -lt 1 ] && speed=1
 
     total=$(grep -c '[^[:space:]]' "$CONF/input.txt" 2>/dev/null)
     [ -z "$total" ] && total=0

@@ -122,12 +122,16 @@ private const val BOOT_SCRIPT = "/data/adb/service.d/chen-auto-input.sh"
 // 越狱模式（Magica `ksud late-load`）只执行 late-load.d 里的脚本，不会执行 service.d，
 // 所以启动脚本要双份安装；否则越狱重启后监听守护不会自己起来。
 private const val LATE_LOAD_SCRIPT = "/data/adb/late-load.d/chen-auto-input.sh"
-private const val BUNDLED_VERSION = "24"
+private const val BUNDLED_VERSION = "25"
 
 // 调试卡片（实时前台 / 最近运行记录）默认隐藏；需要排查时置 true 恢复显示
 private val SHOW_DEBUG_CARDS = false
 
-// 后台脚本 = auto-input.zip 原模块原样（一个字不改），只负责落盘到 /data/adb/auto_input/bin
+// 后台脚本原样取自 auto-input.zip 原模块，只有触发链路做了三处「防卡死」修补（见 B24 说明）：
+//   1) get_foreground_pkg 先问 dumpsys window，失败才退回 activity 全量，并套 timeout + 2s 缓存
+//   2) 轮询间隔 1s -> 2s
+//   3) 每条间隔下限 1s；input / keyevent 套 timeout 10
+// 其余逻辑（触发判定、冷却、脚本喂入、保持运行）与原模块保持一致。
 private val SCRIPT_NAMES = listOf(
     "common.sh",
     "daemon.sh",

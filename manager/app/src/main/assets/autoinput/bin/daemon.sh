@@ -116,13 +116,13 @@ while true; do
 
     # 取不到 / 输入法、系统 UI、权限弹窗这类噪音：保持状态不变，避免抖动误判
     if [ -z "$CUR" ] || is_noise_pkg "$CUR"; then
-        sleep 1
+        sleep 2
         continue
     fi
 
     if [ "$CUR" = "$FIRED" ]; then
         AWAY=0
-        sleep 1
+        sleep 2
         continue
     fi
 
@@ -138,7 +138,7 @@ while true; do
             log "skip: $CUR 距上次触发仅 ${gap}s（最小间隔 ${ignore}s）"
             FIRED="$CUR"
             AWAY=0
-            sleep 1
+            sleep 2
             continue
         fi
 
@@ -158,5 +158,7 @@ while true; do
         FIRED=""
         AWAY=0
     fi
-    sleep 1
+    # 轮询间隔 2s：前台探测要 dump 系统状态，1 秒一次在重应用前台时会把
+    # system_server 拖住（一触发就卡死）；2 秒对触发灵敏度没有实际影响。
+    sleep 2
 done
