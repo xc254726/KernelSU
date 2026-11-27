@@ -58,9 +58,55 @@ data class FlashResult(val code: Int, val err: String, val showReboot: Boolean) 
     constructor(result: Shell.Result) : this(result, result.isSuccess)
 }
 
+/**
+ * root shell 的持有者。
+ *
+ * 这里不能只建一次就永久缓存：chen 的「越狱模式」靠的是 app zygote preload 里
+ * fork 出 ksud 执行 `late-load --magica`，由它把 kernelsu.ko 加载进内核——
+ * root 是**异步就绪**的。如果本进程在越狱完成之前就建过 shell，拿到的是一个
+ * 连不上内核的 ksud（或回落后的普通 sh）；等内核 KSU 上线了，坏实例还躺在缓存里，
+ * 表现就是「首页明明已经是越狱状态，监听页却怎么点都拿不到 root」。
+ *
+ * 所以每次取用都确认一下当前 shell 是不是真 root，不是就重建。
+ * 重建带节流（[REBUILD_INTERVAL_MS]），避免真没有 root 的设备被反复 fork。
+ */
 object KsuCli {
-    val SHELL: Shell = createRootShell()
-    val GLOBAL_MNT_SHELL: Shell = createRootShell(true)
+    private const val REBUILD_INTERVAL_MS = 5_000L
+
+    private var shell: Shell? = null
+    private var globalMntShell: Shell? = null
+    private var lastRebuildAt = 0L
+    private var lastGlobalRebuildAt = 0L
+
+    val SHELL: Shell
+        get() = obtain(globalMnt = false)
+
+    val GLOBAL_MNT_SHELL: Shell
+        get() = obtain(globalMnt = true)
+
+    @Synchronized
+    private fun obtain(globalMnt: Boolean): Shell {
+        val cached = if (globalMnt) globalMntShell else shell
+        val now = SystemClock.elapsedRealtime()
+        val last = if (globalMnt) lastGlobalRebuildAt else lastRebuildAt
+
+        if (cached != null) {
+            // 刚重建过就先信它，别在同一轮里反复 fork
+            if (now - last < REBUILD_INTERVAL_MS) return cached
+            // isRoot 命中后读的是 libsu 内部缓存的状态，几乎无开销
+            if (cached.isRoot) return cached
+        }
+
+        val fresh = createRootShell(globalMnt)
+        if (globalMnt) {
+            globalMntShell = fresh
+            lastGlobalRebuildAt = now
+        } else {
+            shell = fresh
+            lastRebuildAt = now
+        }
+        return fresh
+    }
 }
 
 fun getRootShell(globalMnt: Boolean = false): Shell {

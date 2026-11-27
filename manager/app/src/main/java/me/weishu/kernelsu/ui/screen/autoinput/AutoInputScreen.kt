@@ -119,7 +119,10 @@ import me.weishu.kernelsu.ui.util.showReplacingSnackbar
 private const val CONF_DIR = "/data/adb/auto_input"
 private const val BIN_DIR = "$CONF_DIR/bin"
 private const val BOOT_SCRIPT = "/data/adb/service.d/chen-auto-input.sh"
-private const val BUNDLED_VERSION = "21"
+// 越狱模式（Magica `ksud late-load`）只执行 late-load.d 里的脚本，不会执行 service.d，
+// 所以启动脚本要双份安装；否则越狱重启后监听守护不会自己起来。
+private const val LATE_LOAD_SCRIPT = "/data/adb/late-load.d/chen-auto-input.sh"
+private const val BUNDLED_VERSION = "22"
 
 // 调试卡片（实时前台 / 最近运行记录）默认隐藏；需要排查时置 true 恢复显示
 private val SHOW_DEBUG_CARDS = false
@@ -140,7 +143,7 @@ private const val STATUS_SCRIPT = """
 CONF=/data/adb/auto_input
 echo UID=${'$'}(id -u)
 [ -d ${'$'}CONF/bin ] && echo DIR=1 || echo DIR=0
-[ -f /data/adb/service.d/chen-auto-input.sh ] && echo BOOT=1 || echo BOOT=0
+{ [ -f /data/adb/service.d/chen-auto-input.sh ] || [ -f /data/adb/late-load.d/chen-auto-input.sh ]; } && echo BOOT=1 || echo BOOT=0
 sh ${'$'}CONF/bin/status.sh 2>/dev/null
 . ${'$'}CONF/bin/common.sh
 echo FG=${'$'}(get_foreground_pkg)
@@ -187,6 +190,7 @@ hp=${'$'}(cat ${'$'}CONF/.script_hold_pid 2>/dev/null)
 cp=${'$'}(cat ${'$'}CONF/.script_child 2>/dev/null)
 [ -n "${'$'}cp" ] && kill -9 ${'$'}cp 2>/dev/null
 rm -f /data/adb/service.d/chen-auto-input.sh
+rm -f /data/adb/late-load.d/chen-auto-input.sh
 rm -rf ${'$'}CONF
 echo REMOVED
 """
@@ -274,7 +278,7 @@ private fun writeFile(ksuCli: KsuCliRepository, path: String, content: String): 
 
 private fun installScripts(context: Context, ksuCli: KsuCliRepository): String {
     val script = buildString {
-        append("mkdir -p $BIN_DIR /data/adb/service.d\n")
+        append("mkdir -p $BIN_DIR /data/adb/service.d /data/adb/late-load.d\n")
         SCRIPT_NAMES.forEach { name ->
             append("printf %s '").append(assetBase64(context, "bin/$name"))
                 .append("' | base64 -d > $BIN_DIR/$name\n")
@@ -282,9 +286,14 @@ private fun installScripts(context: Context, ksuCli: KsuCliRepository): String {
         }
         // 清掉旧版本遗留的脚本（现已完全采用原模块，这几个是以前自加的）
         append("rm -f $BIN_DIR/flow_test.sh $BIN_DIR/probe.sh $BIN_DIR/script_probe.sh\n")
-        append("printf %s '").append(assetBase64(context, "boot.sh"))
+        // 开机入口装两份：service.d（正常 KSU/Magisk 开机）+ late-load.d（越狱模式）
+        val bootB64 = assetBase64(context, "boot.sh")
+        append("printf %s '").append(bootB64)
             .append("' | base64 -d > $BOOT_SCRIPT\n")
         append("chmod 755 $BOOT_SCRIPT\n")
+        append("printf %s '").append(bootB64)
+            .append("' | base64 -d > $LATE_LOAD_SCRIPT\n")
+        append("chmod 755 $LATE_LOAD_SCRIPT\n")
         append("echo '$BUNDLED_VERSION' > $CONF_DIR/.bundled_version\n")
         // 配置只补齐缺失项，不覆盖用户已有设置
         append("[ -f $CONF_DIR/pkg.txt ] || : > $CONF_DIR/pkg.txt\n")

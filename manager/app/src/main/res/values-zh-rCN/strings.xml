@@ -411,7 +411,7 @@
     <string name="autoinput_status_idle">已开启 · 守护进程启动中</string>
     <string name="autoinput_apps_group">监听的应用</string>
     <string name="autoinput_apps_empty">尚未选择应用</string>
-    <string name="autoinput_no_root_hint">本功能要以 root 身份运行才能生效（脚本要写进 /data/adb，输入和读取前台也需要 root）。\n\n请在设备上刷入 KernelSU / Magisk / APatch 之一，并在其管理器里给本应用授予 root 权限，然后重新进入本页——脚本是内置在安装包里的，拿到 root 后会自动装好，你只需要打开上面这个开关。\n\n如果刚刷完 root，记得重启一次再进来。</string>
+    <string name="autoinput_no_root_hint">本功能要以 root 身份运行才能生效（脚本要写进 /data/adb，读取前台应用和注入输入也需要 root）。\n\n用的是 chen 的「越狱模式」：先在首页把越狱跑完（显示已获得 root），再回到本页即可——本页每 5 秒自动重试，不用退出重进。\n\n用的是 KernelSU 内核 / Magisk / APatch：确认首页能看到版本号，然后重新进入本页——脚本内置在安装包里，拿到 root 后会自动装好，你只需要打开上面那个开关。</string>
     <string name="autoinput_need_root_toast">未获取 root 权限，无法写入 /data/adb</string>
     <string name="autoinput_apps_hint">进入其中任意一个应用时触发</string>
     <string name="autoinput_apps_add">添加应用</string>
