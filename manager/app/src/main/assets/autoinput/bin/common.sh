@@ -525,6 +525,41 @@ supervisor_alive() {
     pid_matches "$(read_pid "$1/run/supervisor.pid")" supervisor.sh
 }
 
+# 把进程从 app 的 cgroup 里挪出来（真正决定「划掉后台会不会死」的一步）。
+#
+# setsid 只换会话/进程组，管不了 cgroup。用 chen 的 root shell 拉起的进程，
+# 默认落在 app 的 cgroup 子树里（cgroup v2 形如 /uid_10xxx/pid_xxxx）：
+#   * realme/ColorOS 这类 ROM 的「清理后台」会冻结 cgroup.freeze 整棵子树
+#     —— 进程还在，但一动不动，表现为「监听没反应」；
+#   * 部分 ROM 更进一步，直接清掉这棵子树。
+# 所以启动后必须把自身挪到 uid_0（root 的 cgroup）或 init：那里永不冻结、
+# 也不随任何一个 app 被清理。失败时返回 1，上层会写日志（便于真机定位）。
+escape_app_cgroup() {
+    local pid="$1" cur d after
+    [ -n "$pid" ] || pid=$$
+    [ -r "/proc/$pid/cgroup" ] || return 1
+
+    cur=$(cat "/proc/$pid/cgroup" 2>/dev/null)
+    # 已经在 root / init 的 cgroup，不用动
+    case "$cur" in
+        *"/uid_0"*|*":/init"*) echo "$pid" > /proc/self/oom_score_adj 2>/dev/null; return 0 ;;
+    esac
+
+    # 逐个尝试候选位置；写 cgroup.procs 成功后再确认一次真的换了地方
+    for d in /sys/fs/cgroup/uid_0 /sys/fs/cgroup/init /sys/fs/cgroup; do
+        [ -w "$d/cgroup.procs" ] || continue
+        echo "$pid" > "$d/cgroup.procs" 2>/dev/null || continue
+        after=$(cat "/proc/$pid/cgroup" 2>/dev/null)
+        case "$after" in
+            */uid_10*|*/uid_1[0-9][0-9][0-9][0-9]*) continue ;;   # 还在 app uid 里
+        esac
+        # 顺手把 OOM 权重降到最低：后台清理/内存回收时最后才轮到监听
+        echo -1000 > /proc/self/oom_score_adj 2>/dev/null
+        return 0
+    done
+    return 1
+}
+
 # 完全脱离调用者的会话/进程组后再启动脚本。
 #
 # 监听原先是用 chen 的 root shell 直接拉起来的，那个 shell 是 app 进程树上的子进程：

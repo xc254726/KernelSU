@@ -102,10 +102,16 @@ cleanup() {
     [ "$(cat "$LOCK_DIR/pid" 2>/dev/null | tr -d '\r\n')" = "$$" ] && rm -rf "$LOCK_DIR" 2>/dev/null
     log "daemon down (pid=$$)"
 }
-trap cleanup INT TERM
-# 挂断信号一律忽略：父 shell（chen 的 root shell）退出时会给整组发 HUP，
-# 监听不该因为这个死掉（老版本这里把 HUP 也接到 cleanup，划掉后台就停）
-trap '' HUP
+# 除了 SIGKILL 之外的信号一律忽略。
+#
+# 划掉 chen 后台时，ROM 常常不是直接 SIGKILL，而是先给整组发 HUP/TERM；
+# 老版本把 HUP 接到 cleanup、TERM 更是正经退出，等于自己配合被清理。
+# 现在停止监听只走 `kill -9`（kill_daemon 用的就是 -9），所以这里可以全忽略。
+trap '' HUP INT TERM QUIT
+
+# 保险：daemon 由 supervisor 拉起时通常已在 uid_0，但如果是别的路径起来的，
+# 这一步保证它不在 app 的 cgroup 里（否则划掉 chen 后台会被冻结，看起来像「不监听」）
+escape_app_cgroup "$$" || true
 
 while true; do
     if [ "$(get_conf status 1)" != "1" ]; then

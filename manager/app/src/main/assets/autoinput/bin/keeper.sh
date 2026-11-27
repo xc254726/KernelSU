@@ -13,6 +13,9 @@
 BIN_DIR="${0%/*}"
 . "$BIN_DIR/common.sh"
 
+# 与 daemon/supervisor 一致：只有 SIGKILL 能停掉 keeper（ROM 清理后台爱发 HUP/TERM）
+trap '' HUP INT TERM QUIT
+
 MODDIR="$(cd "$BIN_DIR/.." && pwd)"
 PIDFILE="$MODDIR/run/keeper.pid"
 RELOAD="$MODDIR/run/reload"
@@ -25,7 +28,13 @@ if [ -n "$OLD" ] && [ "$OLD" != "$$" ] && pid_matches "$OLD" keeper.sh; then
     exit 0
 fi
 echo "$$" > "$PIDFILE"
-log "keeper started pid=$$ (status=$(get_conf status 1))"
+# 从 app 的 cgroup 里挪出去：这一步才真正决定「划掉 chen 后台监听会不会死」。
+# 失败也继续跑（只是可能在划掉后台时被 ROM 冻结），但必须留下痕迹便于定位。
+if escape_app_cgroup "$$"; then
+    log "keeper started pid=$$ (status=$(get_conf status 1)) cgroup=$(cat /proc/self/cgroup 2>/dev/null)"
+else
+    log "keeper started pid=$$ (status=$(get_conf status 1)) [警告] 仍在 app cgroup=$(cat /proc/self/cgroup 2>/dev/null)"
+fi
 
 nproc=$(grep -c '^processor' /proc/cpuinfo 2>/dev/null)
 case "$nproc" in ''|*[!0-9]*) nproc=8 ;; esac

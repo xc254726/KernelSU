@@ -58,11 +58,14 @@ import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.Dp
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigationevent.NavigationEventInfo
 import androidx.navigationevent.compose.NavigationBackHandler
 import androidx.navigationevent.compose.rememberNavigationEventState
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
@@ -70,6 +73,7 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
 import me.weishu.kernelsu.Natives
 import me.weishu.kernelsu.R
+import me.weishu.kernelsu.data.shell.KsuCliRepository
 import me.weishu.kernelsu.ui.component.bottombar.BottomBar
 import me.weishu.kernelsu.ui.component.bottombar.MainPagerState
 import me.weishu.kernelsu.ui.component.bottombar.NavigationBadgeState
@@ -148,6 +152,28 @@ open class MainActivity : ComponentActivity() {
 
         val isManager = Natives.isManager
         if (isManager && Natives.kernelUAPIVersion == Natives.managerUAPIVersion) install()
+
+        // 打开 chen 就确保监听的开机侧 keeper 在位。
+        // 装完新包还没重启手机时，开机脚本不会跑，这里是唯一的补拉入口；
+        // 只补 keeper（幂等），绝不重起 daemon —— 一开 app 就打断监听是老毛病。
+        // 越狱模式的 root 是异步就绪的，所以重试几次。
+        lifecycleScope.launch(Dispatchers.IO) {
+            repeat(3) {
+                val ok = runCatching {
+                    val out = ArrayList<String>()
+                    val err = ArrayList<String>()
+                    KsuCliRepository().newRootShell().use { sh ->
+                        sh.newJob()
+                            .add("sh /data/adb/auto_input/bin/ensure.sh keeper >/dev/null 2>&1; id -u")
+                            .to(out, err)
+                            .exec()
+                    }
+                    out.any { it.trim() == "0" }
+                }.getOrDefault(false)
+                if (ok) return@launch
+                delay(5000)
+            }
+        }
 
         if (savedInstanceState == null) intent?.let { intentChannel.trySend(it) }
 
