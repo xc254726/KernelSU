@@ -7,6 +7,7 @@
 #   2) 让配置改动立刻生效（杀掉 daemon，看护 3 秒内用新配置重新拉起）
 # 用法：sh ensure.sh        应用配置
 #       sh ensure.sh stop   立即停止监听（开关关闭时用）
+#       sh ensure.sh keeper 只补拉 keeper，不动已经在跑的看护/daemon
 BIN_DIR="${0%/*}"
 . "$BIN_DIR/common.sh"
 
@@ -18,6 +19,12 @@ case "$1" in
         kill_daemon "$MODDIR"
         kill_supervisor "$MODDIR"
         log "ensure.sh: 监听已停止（app 请求）"
+        ;;
+    keeper)
+        # keeper 不在时（典型：装完新包还没重启过手机）补拉一次。
+        # 这里绝不能顺手重起 daemon —— 那正是老版本「一进监听页就把监听打断」的原因。
+        start_keeper "$MODDIR"
+        log "ensure.sh: 已请求补拉 keeper"
         ;;
     *)
         start_keeper "$MODDIR"

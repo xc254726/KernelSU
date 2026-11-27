@@ -418,6 +418,7 @@
     <string name="autoinput_status_off">Disabled</string>
     <string name="autoinput_status_running">Running · waiting for target app</string>
     <string name="autoinput_status_idle">Enabled · daemon starting</string>
+    <string name="autoinput_status_recovering">Enabled · background watcher not running, repairing</string>
     <string name="autoinput_apps_group">Watched apps</string>
     <string name="autoinput_no_root_hint">This feature needs root to work (the scripts live in /data/adb, and reading the foreground app / injecting input also requires root).\n\nUsing chen\'s Jailbreak mode: finish jailbreaking on the Home page first (root acquired), then come back here — this page retries every 5 seconds automatically, no need to leave and re-enter.\n\nUsing a KernelSU kernel / Magisk / APatch: make sure the Home page shows a version number, then re-enter this page — the scripts are bundled in the APK and install themselves once root is available. You only need to flip the switch above.</string>
     <string name="autoinput_need_root_toast">No root access, cannot write to /data/adb</string>

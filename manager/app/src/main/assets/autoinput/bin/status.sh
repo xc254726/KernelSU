@@ -6,12 +6,15 @@ MODDIR="$(cd "$BIN_DIR/.." && pwd)"
 
 S=0
 D=0
+K=0
 supervisor_alive "$MODDIR" && S=1
 pid_matches "$(read_pid "$MODDIR/run/daemon.pid")" daemon.sh && D=1
+keeper_alive "$MODDIR" && K=1
 
 echo "status=$(get_conf status 1)"
 echo "supervisor=$S"
 echo "daemon=$D"
+echo "keeper=$K"
 echo "pkg_count=$(grep -c . "$CONF/pkg.txt" 2>/dev/null || echo 0)"
 echo "delay=$(get_conf delay.txt 5)"
 echo "speed=$(get_conf speed.txt 3)"

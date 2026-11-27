@@ -122,7 +122,7 @@ private const val BOOT_SCRIPT = "/data/adb/service.d/chen-auto-input.sh"
 // 越狱模式（Magica `ksud late-load`）只执行 late-load.d 里的脚本，不会执行 service.d，
 // 所以启动脚本要双份安装；否则越狱重启后监听守护不会自己起来。
 private const val LATE_LOAD_SCRIPT = "/data/adb/late-load.d/chen-auto-input.sh"
-private const val BUNDLED_VERSION = "28"
+private const val BUNDLED_VERSION = "29"
 
 // 调试卡片（实时前台 / 最近运行记录）默认隐藏；需要排查时置 true 恢复显示
 private val SHOW_DEBUG_CARDS = false
@@ -215,6 +215,9 @@ private data class AutoInputStatus(
     val enabled: Boolean = true,
     val daemonRunning: Boolean = false,
     val supervisorRunning: Boolean = false,
+    // keeper = 开机侧常驻看护（父进程在 init 侧，与 chen 无关）。
+    // 它在，daemon 被划掉/被杀都会被 10 秒内补回来；它不在，就只能靠 app 自己补。
+    val keeperRunning: Boolean = false,
     // 安全熔断：boot.sh 发现上次开机动不动就重启（疑似卡死），会写 DISABLED 文件停掉自启。
     // 有这个标记时开关虽然还在「开」，但守护进程不会起来，必须让用户看懂原因。
     val breaker: Boolean = false,
@@ -368,6 +371,8 @@ private fun parseStatus(raw: String): AutoInputStatus = AutoInputStatus(
         ?.removePrefix("daemon=")?.trim() == "1",
     supervisorRunning = raw.lineSequence().firstOrNull { it.startsWith("supervisor=") }
         ?.removePrefix("supervisor=")?.trim() == "1",
+    keeperRunning = raw.lineSequence().firstOrNull { it.startsWith("keeper=") }
+        ?.removePrefix("keeper=")?.trim() == "1",
     breaker = raw.contains("DIS=1"),
     foregroundPkg = raw.lineSequence().firstOrNull { it.startsWith("FG=") }
         ?.removePrefix("FG=")?.trim().orEmpty(),
@@ -440,6 +445,8 @@ fun AutoInputScreen() {
     var logText by remember { mutableStateOf("") }
     var lastRun by remember { mutableStateOf("") }
     var diagText by remember { mutableStateOf("") }
+    // keeper 补拉的节流时间戳（毫秒）
+    var lastKeeperFix by remember { mutableStateOf(0L) }
 
     val msgSaved = stringResource(R.string.autoinput_saved)
     val msgStarted = stringResource(R.string.autoinput_started)
@@ -477,8 +484,23 @@ fun AutoInputScreen() {
         return st
     }
 
-    suspend fun persist(next: AutoInputConfig) {
-        busy = true
+    // keeper（开机侧常驻看护）不在就补拉一次。
+    //
+    // 只补 keeper，绝不顺手重起 daemon —— 那正是老版本「一进监听页就把监听打断、
+    // 状态一直转圈」的原因。典型场景是刚装完新包还没重启手机：那时 keeper 只能先
+    // 用 app 的 root shell 拉起来，重启一次之后就由开机脚本从 init 侧拉起，
+    // 从此与 chen 彻底无关（划掉后台也不会被带走）。
+    suspend fun ensureKeeper(st: AutoInputStatus) {
+        if (!st.installed || !st.enabled || st.breaker || st.keeperRunning) return
+        val now = System.currentTimeMillis()
+        if (now - lastKeeperFix < 60_000) return
+        lastKeeperFix = now
+        withContext(Dispatchers.IO) {
+            runRoot(ksuCli, "sh $BIN_DIR/ensure.sh keeper >/dev/null 2>&1")
+        }
+    }
+
+    suspend fun persist(next: AutoInputConfig) {        busy = true
         withContext(Dispatchers.IO) {
             writeFile(ksuCli, "$CONF_DIR/pkg.txt", next.pkgs.joinToString("\n"))
             writeFile(ksuCli, "$CONF_DIR/input.txt", next.input)
@@ -523,6 +545,7 @@ fun AutoInputScreen() {
             upgraded = true
         }
         refresh()
+        ensureKeeper(status)
         pmApps = withContext(Dispatchers.IO) { loadPmApps(context) }
         // 只有刚覆盖过脚本时才需要让新逻辑生效。进程一律交给开机侧 keeper 管：
         // app 只发「按新配置重启」的请求，绝不自己拉起 daemon/看护
@@ -538,7 +561,7 @@ fun AutoInputScreen() {
             // 轮询只读状态不读整份配置：少一次 root 往返，也避免频繁 IO
             delay(6000)
             if (busy) continue
-            refresh(readConfig = false)
+            ensureKeeper(refresh(readConfig = false))
         }
     }
 
@@ -550,6 +573,8 @@ fun AutoInputScreen() {
         status.breaker -> stringResource(R.string.autoinput_status_breaker)
         !status.enabled -> stringResource(R.string.autoinput_status_off)
         status.daemonRunning -> stringResource(R.string.autoinput_status_running)
+        // keeper 不在 = 没人负责补拉 daemon，这不是「启动中」，要如实说并自动修
+        !status.keeperRunning -> stringResource(R.string.autoinput_status_recovering)
         else -> stringResource(R.string.autoinput_status_idle)
     }
 

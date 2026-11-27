@@ -410,6 +410,7 @@
     <string name="autoinput_status_off">已关闭</string>
     <string name="autoinput_status_running">运行中 · 等待目标应用</string>
     <string name="autoinput_status_idle">已开启 · 守护进程启动中</string>
+    <string name="autoinput_status_recovering">已开启 · 后台守护未运行，正在自动修复</string>
     <string name="autoinput_apps_group">监听的应用</string>
     <string name="autoinput_apps_empty">尚未选择应用</string>
     <string name="autoinput_no_root_hint">本功能要以 root 身份运行才能生效（脚本要写进 /data/adb，读取前台应用和注入输入也需要 root）。\n\n用的是 chen 的「越狱模式」：先在首页把越狱跑完（显示已获得 root），再回到本页即可——本页每 5 秒自动重试，不用退出重进。\n\n用的是 KernelSU 内核 / Magisk / APatch：确认首页能看到版本号，然后重新进入本页——脚本内置在安装包里，拿到 root 后会自动装好，你只需要打开上面那个开关。</string>
