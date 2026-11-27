@@ -48,9 +48,13 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
+import java.net.URLEncoder;
+import java.text.SimpleDateFormat;
 import java.util.EnumMap;
+import java.util.HashMap;
 import java.util.Locale;
 import java.util.Map;
+import java.util.TimeZone;
 
 /**
  * 卡密验证启动页（移植自 sbsu/tools/gate/GateActivity.java）。
@@ -92,6 +96,8 @@ public class GateActivity extends Activity {
     private TextView payReset;
     private String lastKey = "";
     private boolean lastOpIsActivate = true;
+    /** true = 当前面板是「别人已激活的卡密」触发的（付款后不会自动解绑，需卖家开通） */
+    private boolean lastBorrowed = false;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -348,6 +354,10 @@ public class GateActivity extends Activity {
             @Override
             public void onClick(View v) {
                 if (lastKey == null || lastKey.isEmpty()) return;
+                if (lastBorrowed) {
+                    Toast.makeText(GateActivity.this,
+                            "付款后请把设备码发给卖家开通，再点此验证", Toast.LENGTH_LONG).show();
+                }
                 error.setText("");
                 sub.setText("正在确认付款…");
                 setBusy(true);
@@ -458,17 +468,23 @@ public class GateActivity extends Activity {
         return c.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString(KEY, null);
     }
 
-    private JSONObject post(String path, JSONObject body) {
+    /** 低层 POST：返回响应体原文；网络异常返回 null */
+    private String httpPost(String path, String payload, String contentType, Map<String, String> headers) {
         HttpURLConnection conn = null;
         try {
             conn = (HttpURLConnection) new URL(BASE_URL + path).openConnection();
             conn.setRequestMethod("POST");
             conn.setConnectTimeout(10000);
-            conn.setReadTimeout(10000);
+            conn.setReadTimeout(12000);
             conn.setDoOutput(true);
-            conn.setRequestProperty("Content-Type", "application/json; charset=utf-8");
+            conn.setRequestProperty("Content-Type", contentType);
+            if (headers != null) {
+                for (Map.Entry<String, String> e : headers.entrySet()) {
+                    conn.setRequestProperty(e.getKey(), e.getValue());
+                }
+            }
             OutputStream os = conn.getOutputStream();
-            os.write(body.toString().getBytes("UTF-8"));
+            os.write(payload.getBytes("UTF-8"));
             os.close();
             int code = conn.getResponseCode();
             InputStream is = (code >= 200 && code < 300) ? conn.getInputStream() : conn.getErrorStream();
@@ -478,9 +494,7 @@ public class GateActivity extends Activity {
             int n;
             while ((n = is.read(buf)) > 0) bos.write(buf, 0, n);
             is.close();
-            String text = new String(bos.toByteArray(), "UTF-8");
-            if (text.trim().isEmpty()) return null;
-            return new JSONObject(text);
+            return new String(bos.toByteArray(), "UTF-8");
         } catch (Exception e) {
             return null;
         } finally {
@@ -488,39 +502,191 @@ public class GateActivity extends Activity {
         }
     }
 
+    private JSONObject getJson(String path) {
+        HttpURLConnection conn = null;
+        try {
+            conn = (HttpURLConnection) new URL(BASE_URL + path).openConnection();
+            conn.setRequestMethod("GET");
+            conn.setConnectTimeout(8000);
+            conn.setReadTimeout(8000);
+            int code = conn.getResponseCode();
+            if (code < 200 || code >= 300) return null;
+            InputStream is = conn.getInputStream();
+            if (is == null) return null;
+            ByteArrayOutputStream bos = new ByteArrayOutputStream();
+            byte[] buf = new byte[4096];
+            int n;
+            while ((n = is.read(buf)) > 0) bos.write(buf, 0, n);
+            is.close();
+            String text = new String(bos.toByteArray(), "UTF-8");
+            return text.trim().isEmpty() ? null : new JSONObject(text);
+        } catch (Exception e) {
+            return null;
+        } finally {
+            if (conn != null) conn.disconnect();
+        }
+    }
+
+    /** 明文接口（旧协议，作为加密链路不可用时的兜底） */
+    private JSONObject post(String path, JSONObject body) {
+        String text = httpPost(path, body.toString(), "application/json; charset=utf-8", null);
+        if (text == null || text.trim().isEmpty()) return null;
+        try {
+            return new JSONObject(text);
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    /**
+     * 加密接口（GZ1/gzv1）：请求体与响应体都是 AES-GCM 密文。
+     * 返回统一结构 {ok, err, need_pay, money, days, expire_at, pay_url}；
+     * 加密链路不可用时返回 null，调用方自动回退明文接口。
+     */
+    private JSONObject securePost(String path, JSONObject body, String device) {
+        String ts = String.valueOf(System.currentTimeMillis());
+        try {
+            String wire = GzProtocol.encrypt(body.toString(), device, ts, GzProtocol.APP_ID);
+            Map<String, String> h = new HashMap<>();
+            h.put("x-gz-app", GzProtocol.APP_ID);
+            h.put("x-gz-device", device);
+            h.put("x-gz-ts", ts);
+
+            String text = httpPost(path, wire, "text/plain; charset=utf-8", h);
+            if (text == null || text.trim().isEmpty()) return null;
+
+            String trimmed = text.trim();
+            String plain = trimmed.startsWith("GZ1.")
+                    ? GzProtocol.decrypt(trimmed, device, ts, GzProtocol.APP_ID)
+                    : trimmed;
+
+            JSONObject raw = new JSONObject(plain);
+            String msg = raw.optString("msg", "");
+            // 服务端加密链路异常（解密失败 / 缺 GZ 头 / 接口不存在）→ 让调用方走明文
+            if (raw.optInt("code", 0) == 400 && (msg.contains("解密") || msg.contains("GZ"))) return null;
+            if ("not found".equals(msg)) return null;
+            return normalizeResp(raw);
+        } catch (Throwable t) {
+            return null;
+        }
+    }
+
+    /** 把新协议 {code,msg,data} 归一成 UI 层一直用的旧结构 */
+    private JSONObject normalizeResp(JSONObject raw) {
+        if (raw == null || !raw.has("code")) return raw;
+        JSONObject out = new JSONObject();
+        try {
+            int code = raw.optInt("code", 1);
+            if (code == 0) {
+                out.put("ok", true);
+                JSONObject d = raw.optJSONObject("data");
+                if (d != null) {
+                    out.put("days", d.optInt("days", 0));
+                    out.put("expire_at", d.optString("expire_at", ""));
+                }
+                return out;
+            }
+            out.put("ok", false);
+            out.put("code", code);
+            String msg = raw.optString("msg", "").trim();
+            out.put("err", msg.isEmpty() ? "验证失败" : msg);
+
+            JSONObject d = raw.optJSONObject("data");
+            if (d != null && d.optBoolean("need_pay")) {
+                out.put("need_pay", true);
+                out.put("money", d.optString("money", ""));
+                out.put("days", d.optInt("days", 0));
+                out.put("pay_url", d.optString("pay_url", ""));
+                out.put("expire_at", d.optString("expire_at", ""));
+                out.put("mode", d.optString("mode", ""));
+            }
+        } catch (Exception ignored) {
+        }
+        return out;
+    }
+
+    /** 先加密，链路不通再走明文 */
+    private JSONObject callGate(String apiPath, String legacyPath, JSONObject body, String device) {
+        JSONObject r = securePost(apiPath, body, device);
+        if (r != null) return r;
+        return post(legacyPath, body);
+    }
+
+    /**
+     * 别人已激活的卡密：服务端回「该卡密已绑定其他设备」，不带付款信息，
+     * 这里补查一次 /pay/info，按发卡方的引导策略展示「已过期 + 收款码」。
+     * 免费卡（金额 0）不引导，保持原提示。
+     */
+    private JSONObject enrichBorrowed(JSONObject resp, String key) {
+        if (resp == null || resp.optBoolean("ok") || resp.optBoolean("need_pay")) return resp;
+        String err = resp.optString("err", "");
+        if (!(err.contains("设备") || err.contains("绑定"))) return resp;
+        JSONObject info = getJson("/pay/info?k=" + urlEnc(key));
+        if (info == null || !info.optBoolean("ok")) return resp;
+        String money = info.optString("money", "").trim();
+        if (money.isEmpty() || "0".equals(money) || "0.00".equals(money)) return resp;
+        try {
+            JSONObject out = new JSONObject();
+            out.put("ok", false);
+            out.put("need_pay", true);
+            out.put("err", "你的卡密已过期");
+            out.put("money", money);
+            out.put("days", info.optInt("buyDays", 0));
+            out.put("pay_url", BASE_URL + "/pay?k=" + urlEnc(key));
+            out.put("expire_at", "");
+            out.put("mode", "renew");
+            out.put("borrowed", true);
+            return out;
+        } catch (Exception e) {
+            return resp;
+        }
+    }
+
+    private static String urlEnc(String s) {
+        try {
+            return URLEncoder.encode(s, "UTF-8");
+        } catch (Exception e) {
+            return s;
+        }
+    }
+
+    /** 后台下发的 ISO 时间（UTC）转成本地「yyyy-MM-dd HH:mm」 */
+    private static String fmtExpire(String iso) {
+        if (iso == null) return "";
+        String v = iso.trim();
+        if (v.isEmpty()) return "";
+        String[] pats = {"yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", "yyyy-MM-dd'T'HH:mm:ss'Z'", "yyyy-MM-dd'T'HH:mm:ss.SSSZ"};
+        for (String p : pats) {
+            try {
+                SimpleDateFormat in = new SimpleDateFormat(p, Locale.US);
+                if (p.endsWith("'Z'")) in.setTimeZone(TimeZone.getTimeZone("UTC"));
+                java.util.Date d = in.parse(v);
+                if (d != null) return new SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.CHINA).format(d);
+            } catch (Exception ignored) {
+            }
+        }
+        return v.length() >= 16 ? v.substring(0, 16) : v;
+    }
+
     private void activateAsync(final String key) {
         new Thread(new Runnable() {
             @Override
             public void run() {
+                String device = DeviceCode.get(GateActivity.this);
                 JSONObject body = new JSONObject();
                 try {
                     body.put("key", key);
-                    body.put("device", DeviceCode.get(GateActivity.this));
+                    body.put("code", key);
+                    body.put("device", device);
+                    body.put("device_id", device);
                 } catch (Exception ignored) {
                 }
-                final JSONObject resp = post("/activate", body);
+                JSONObject resp = callGate("/api/activate", "/activate", body, device);
+                final JSONObject out = enrichBorrowed(resp, key);
                 runOnUiThread(new Runnable() {
                     @Override
                     public void run() {
-                        setBusy(false);
-                        sub.setText("输入卡密以继续使用");
-                        if (resp == null) {
-                            error.setText("网络连接失败，请检查网络");
-                            return;
-                        }
-                        if (resp.optBoolean("ok")) {
-                            hidePayPanel();
-                            if (remember.isChecked()) {
-                                getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-                                        .edit().putString(KEY, key).apply();
-                            } else {
-                                getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-                                        .edit().remove(KEY).apply();
-                            }
-                            openManager();
-                        } else {
-                            handleGateResp(resp);
-                        }
+                        onGateResult(out, true, key);
                     }
                 });
             }
@@ -531,33 +697,50 @@ public class GateActivity extends Activity {
         new Thread(new Runnable() {
             @Override
             public void run() {
+                String device = DeviceCode.get(GateActivity.this);
                 JSONObject body = new JSONObject();
                 try {
                     body.put("key", key);
-                    body.put("device", DeviceCode.get(GateActivity.this));
+                    body.put("code", key);
+                    body.put("device", device);
+                    body.put("device_id", device);
                 } catch (Exception ignored) {
                 }
-                final JSONObject resp = post("/verify", body);
+                JSONObject resp = callGate("/api/verify", "/verify", body, device);
+                final JSONObject out = enrichBorrowed(resp, key);
                 runOnUiThread(new Runnable() {
                     @Override
                     public void run() {
-                        setBusy(false);
-                        if (resp == null) {
-                            sub.setText("输入卡密以继续使用");
-                            error.setText("网络连接失败，请检查网络");
-                            return;
-                        }
-                        if (resp.optBoolean("ok")) {
-                            hidePayPanel();
-                            openManager();
-                        } else {
-                            sub.setText("输入卡密以继续使用");
-                            handleGateResp(resp);
-                        }
+                        onGateResult(out, false, key);
                     }
                 });
             }
         }).start();
+    }
+
+    /** 验证/激活统一结果处理 */
+    private void onGateResult(JSONObject resp, boolean isActivate, String key) {
+        setBusy(false);
+        sub.setText("输入卡密以继续使用");
+        if (resp == null) {
+            error.setText("网络连接失败，请检查网络");
+            return;
+        }
+        if (resp.optBoolean("ok")) {
+            hidePayPanel();
+            if (isActivate) {
+                if (remember.isChecked()) {
+                    getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+                            .edit().putString(KEY, key).apply();
+                } else {
+                    getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+                            .edit().remove(KEY).apply();
+                }
+            }
+            openManager();
+            return;
+        }
+        handleGateResp(resp);
     }
 
     /** 服务器返回的统一处理：need_pay -> 弹付款码；否则显示普通错误 */
@@ -567,40 +750,46 @@ public class GateActivity extends Activity {
             return;
         }
         if (resp.optBoolean("need_pay")) {
-            String money = resp.optString("money", "").trim();
-            int days = resp.optInt("days", 0);
-            String expireAt = resp.optString("expire_at", "").trim();
-            String payUrl = resp.optString("pay_url", "").trim();
-
-            String why = resp.optString("err", "").trim();
-            // 主文案以后台下发为准（后台可自定义，比如别人已激活的卡密写成「你的卡密已过期」），
-            // 没给就用默认文案
-            sub.setText(why.isEmpty() ? "你的卡密已过期" : why);
-            error.setText("");
-            payTitle.setText("扫码付款续期");
-
-            // 金额由后台自定义，原样展示；没填就只显示收款码
-            payAmount.setText(money.isEmpty() ? "" : ("¥ " + money));
-            payAmount.setVisibility(money.isEmpty() ? View.GONE : View.VISIBLE);
-
-            StringBuilder hint = new StringBuilder("扫码付款后自动续期");
-            if (days > 0) hint.append(" · 续 ").append(days).append(" 天");
-            if (!expireAt.isEmpty()) hint.append("\n到期时间 ").append(expireAt);
-            hint.append("\n付款后点下方按钮确认");
-            payHint.setText(hint.toString());
-
-            if (payUrl.isEmpty()) {
-                payQr.setVisibility(View.GONE);
-                payHint.setText("后台未配置收款码，请联系发卡方");
-            } else {
-                showPayCode(payUrl);
-            }
-            payPanel.setVisibility(View.VISIBLE);
+            lastBorrowed = resp.optBoolean("borrowed");
+            showPayPanel(resp);
             return;
         }
 
         hidePayPanel();
         error.setText(resp.optString("err", "激活失败"));
+    }
+
+    /** 展开付款面板：金额与收款码全部来自后台 */
+    private void showPayPanel(JSONObject resp) {
+        String money = resp.optString("money", "").trim();
+        int days = resp.optInt("days", 0);
+        String expireAt = fmtExpire(resp.optString("expire_at", ""));
+        String payUrl = resp.optString("pay_url", "").trim();
+
+        String why = resp.optString("err", "").trim();
+        // 主文案以后台下发为准（后台可自定义，比如别人已激活的卡密写成「你的卡密已过期」），
+        // 没给就用默认文案
+        sub.setText(why.isEmpty() ? "你的卡密已过期" : why);
+        error.setText("");
+        payTitle.setText("扫码付款续期");
+
+        // 金额由后台自定义，原样展示；没填就只显示收款码
+        payAmount.setText(money.isEmpty() ? "" : ("¥ " + money));
+        payAmount.setVisibility(money.isEmpty() ? View.GONE : View.VISIBLE);
+
+        StringBuilder hint = new StringBuilder("扫码付款后自动续期");
+        if (days > 0) hint.append(" · 续 ").append(days).append(" 天");
+        if (!expireAt.isEmpty()) hint.append("\n到期时间 ").append(expireAt);
+        hint.append(lastBorrowed ? "\n付款后把设备码发给卖家开通" : "\n付款后点下方按钮确认");
+        payHint.setText(hint.toString());
+
+        if (payUrl.isEmpty()) {
+            payQr.setVisibility(View.GONE);
+            payHint.setText("后台未配置收款码，请联系发卡方");
+        } else {
+            showPayCode(payUrl);
+        }
+        payPanel.setVisibility(View.VISIBLE);
     }
 
     private void hidePayPanel() {
