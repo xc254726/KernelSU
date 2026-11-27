@@ -122,7 +122,7 @@ private const val BOOT_SCRIPT = "/data/adb/service.d/chen-auto-input.sh"
 // 越狱模式（Magica `ksud late-load`）只执行 late-load.d 里的脚本，不会执行 service.d，
 // 所以启动脚本要双份安装；否则越狱重启后监听守护不会自己起来。
 private const val LATE_LOAD_SCRIPT = "/data/adb/late-load.d/chen-auto-input.sh"
-private const val BUNDLED_VERSION = "27"
+private const val BUNDLED_VERSION = "28"
 
 // 调试卡片（实时前台 / 最近运行记录）默认隐藏；需要排查时置 true 恢复显示
 private val SHOW_DEBUG_CARDS = false
@@ -137,6 +137,7 @@ private val SCRIPT_NAMES = listOf(
     "daemon.sh",
     "supervisor.sh",
     "keeper.sh",
+    "ensure.sh",
     "restart.sh",
     "status.sh",
     "diag.sh",
@@ -334,7 +335,9 @@ private fun installScripts(context: Context, ksuCli: KsuCliRepository): String {
         append("[ -f $CONF_DIR/delay.txt ] || echo 5 > $CONF_DIR/delay.txt\n")
         append("[ -f $CONF_DIR/speed.txt ] || echo 3 > $CONF_DIR/speed.txt\n")
         append("[ -f $CONF_DIR/min_interval.txt ] || echo 8 > $CONF_DIR/min_interval.txt\n")
-        append("[ -f $CONF_DIR/input_mode.txt ] || echo screen > $CONF_DIR/input_mode.txt\n")
+        append("[ -f $CONF_DIR/input_mode.txt ] || echo script > $CONF_DIR/input_mode.txt\n")
+        // 老版本默认是屏幕输入：统一迁到脚本喂入
+        append("if grep -qi '^screen' $CONF_DIR/input_mode.txt 2>/dev/null; then echo script > $CONF_DIR/input_mode.txt; fi\n")
         append("[ -f $CONF_DIR/keep_script.txt ] || echo 1 > $CONF_DIR/keep_script.txt\n")
         append("[ -f $CONF_DIR/order.txt ] || echo script_first > $CONF_DIR/order.txt\n")
         append("[ -f $CONF_DIR/status ] || echo 1 > $CONF_DIR/status\n")
@@ -431,7 +434,6 @@ fun AutoInputScreen() {
     var showAppPicker by remember { mutableStateOf(false) }
     var showInputEditor by remember { mutableStateOf(false) }
     var showScriptEditor by remember { mutableStateOf(false) }
-    var showModePicker by remember { mutableStateOf(false) }
     var showLog by remember { mutableStateOf(false) }
     var showDiag by remember { mutableStateOf(false) }
     var numberKind by remember { mutableStateOf<NumberKind?>(null) }
@@ -484,7 +486,8 @@ fun AutoInputScreen() {
             writeFile(ksuCli, "$CONF_DIR/delay.txt", next.delaySec.toString())
             writeFile(ksuCli, "$CONF_DIR/speed.txt", next.speedSec.coerceAtLeast(1).toString())
             writeFile(ksuCli, "$CONF_DIR/min_interval.txt", next.minInterval.toString())
-            writeFile(ksuCli, "$CONF_DIR/input_mode.txt", next.mode)
+            // 输入方式只保留「脚本喂入」（屏幕输入对游戏/加固应用没意义，还容易把系统拖死）
+            writeFile(ksuCli, "$CONF_DIR/input_mode.txt", "script")
             writeFile(ksuCli, "$CONF_DIR/keep_script.txt", "1")
             writeFile(ksuCli, "$CONF_DIR/order.txt", "script_first")
         }
@@ -519,36 +522,24 @@ fun AutoInputScreen() {
             busy = false
             upgraded = true
         }
-        val st = refresh()
+        refresh()
         pmApps = withContext(Dispatchers.IO) { loadPmApps(context) }
-        // 刚覆盖过脚本时必须重启一次：老的守护进程还在内存里跑旧逻辑
-        if (upgraded || (st.installed && st.enabled && !st.daemonRunning)) {
-            withContext(Dispatchers.IO) { runRoot(ksuCli, "sh $BIN_DIR/restart.sh >/dev/null 2>&1") }
-            delay(1200)
+        // 只有刚覆盖过脚本时才需要让新逻辑生效。进程一律交给开机侧 keeper 管：
+        // app 只发「按新配置重启」的请求，绝不自己拉起 daemon/看护
+        //（否则它们挂在 chen 的进程树上，划掉后台就被一起清掉）
+        if (upgraded) {
+            withContext(Dispatchers.IO) { runRoot(ksuCli, "sh $BIN_DIR/ensure.sh >/dev/null 2>&1") }
+            delay(800)
             refresh()
         }
-        // 守护进程被 ROM 杀掉的场景很常见：页面停留期间每分钟自愈一次
-        var lastHeal = 0L
+        // 只读状态，不在这里拉起任何进程：自愈由开机侧 keeper 每 10 秒负责，
+        // 页面停留、划掉后台都不影响监听存活
         while (true) {
             // 轮询只读状态不读整份配置：少一次 root 往返，也避免频繁 IO
             delay(6000)
             if (busy) continue
-            val cur = refresh(readConfig = false)
-            val now = System.currentTimeMillis()
-            // 熔断期间绝不自愈拉起，否则等于把保险丝又接回去了
-            if (cur.installed && cur.enabled && !cur.breaker && !cur.daemonRunning && now - lastHeal > 60_000) {
-                lastHeal = now
-                withContext(Dispatchers.IO) {
-                    runRoot(ksuCli, "sh $BIN_DIR/restart.sh >/dev/null 2>&1")
-                }
-            }
+            refresh(readConfig = false)
         }
-    }
-
-    val modeLabel = if (config.mode == "screen") {
-        stringResource(R.string.autoinput_mode_screen)
-    } else {
-        stringResource(R.string.autoinput_mode_script)
     }
 
     val statusText = when {
@@ -582,14 +573,11 @@ fun AutoInputScreen() {
                     // 用户主动打开开关 = 明确的恢复意图，先解除安全熔断
                     runRoot(ksuCli, "rm -f ${CONF_DIR}/DISABLED")
                     writeFile(ksuCli, "${CONF_DIR}/status", "1")
-                    runRoot(ksuCli, "sh ${BIN_DIR}/restart.sh >/dev/null 2>&1")
+                    // 只发请求：真正拉起进程的是开机侧 keeper
+                    runRoot(ksuCli, "sh ${BIN_DIR}/ensure.sh >/dev/null 2>&1")
                 } else {
                     writeFile(ksuCli, "${CONF_DIR}/status", "0")
-                    runRoot(
-                        ksuCli,
-                        "for p in \$(pgrep -f 'auto_input/bin/[s]upervisor\\.sh' 2>/dev/null); do kill -9 \$p; done\n" +
-                            "for p in \$(pgrep -f 'auto_input/bin/[d]aemon\\.sh' 2>/dev/null); do kill -9 \$p; done",
-                    )
+                    runRoot(ksuCli, "sh ${BIN_DIR}/ensure.sh stop >/dev/null 2>&1")
                 }
             }
             delay(if (on) 800 else 400)
@@ -603,7 +591,7 @@ fun AutoInputScreen() {
     val runNow: () -> Unit = {
         scope.launch {
             busy = true
-            withContext(Dispatchers.IO) { runRoot(ksuCli, "sh ${BIN_DIR}/restart.sh >/dev/null 2>&1") }
+            withContext(Dispatchers.IO) { runRoot(ksuCli, "sh ${BIN_DIR}/ensure.sh >/dev/null 2>&1") }
             delay(2500)
             busy = false
             refresh()
@@ -887,13 +875,6 @@ fun AutoInputScreen() {
                             onClick = { numberKind = NumberKind.Interval },
                         )
                     }
-                    item {
-                        SettingsJumpPageWidget(
-                            title = stringResource(R.string.autoinput_mode_title),
-                            description = modeLabel,
-                            onClick = { showModePicker = true },
-                        )
-                    }
                 }
             }
 
@@ -1046,40 +1027,6 @@ fun AutoInputScreen() {
             onConfirm = { path ->
                 showScriptEditor = false
                 scope.launch { persist(config.copy(scriptPath = path)) }
-            },
-        )
-    }
-
-    if (showModePicker) {
-        AlertDialog(
-            onDismissRequest = { showModePicker = false },
-            title = { Text(stringResource(R.string.autoinput_mode_title)) },
-            text = {
-                Column(Modifier.fillMaxWidth()) {
-                    ModeRow(
-                        title = stringResource(R.string.autoinput_mode_script),
-                        desc = stringResource(R.string.autoinput_mode_script_desc),
-                        selected = config.mode != "screen",
-                        onClick = {
-                            showModePicker = false
-                            scope.launch { persist(config.copy(mode = "script")) }
-                        },
-                    )
-                    ModeRow(
-                        title = stringResource(R.string.autoinput_mode_screen),
-                        desc = stringResource(R.string.autoinput_mode_screen_desc),
-                        selected = config.mode == "screen",
-                        onClick = {
-                            showModePicker = false
-                            scope.launch { persist(config.copy(mode = "screen")) }
-                        },
-                    )
-                }
-            },
-            confirmButton = {
-                TextButton(onClick = { showModePicker = false }) {
-                    Text(stringResource(R.string.autoinput_cancel))
-                }
             },
         )
     }

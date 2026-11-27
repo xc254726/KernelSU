@@ -9,7 +9,11 @@
 #   1) 紧急开关：/data/adb/auto_input/DISABLED 存在 -> 完全不自启
 #   2) 开机熔断：上一次开机启动后 3 分钟内就重启、没留下健康标记 -> 判定上次卡死，
 #      自动写 DISABLED 并跳过自启（本次开机正常进系统）
-#   3) 运行期看护：启动后盯 /proc/loadavg，负载持续超过 4 倍核数就停掉监听并熔断
+#   3) 运行期看护：由 keeper（bin/keeper.sh）常驻盯 /proc/loadavg，
+#      负载持续超过 4 倍核数就停掉监听并熔断
+#
+# 这里只负责「把 keeper 拉起来」，启停/自愈/看护都在 keeper 里做：
+# keeper 的父进程在 init 侧，chen 被划掉或卸载都不影响它。
 MODDIR=/data/adb/auto_input
 BIN_DIR="$MODDIR/bin"
 LOG=/data/adb/auto_input/daemon.log
@@ -144,60 +148,15 @@ rm -f "$MODDIR/run/"*.pid 2>/dev/null
 
     chmod 755 "$BIN_DIR/"*.sh 2>/dev/null
     mkdir -p "$MODDIR/run" 2>/dev/null
-    rm -f "$MODDIR/run/"*.pid 2>/dev/null
+    # 只清看护/daemon 的旧 pid；keeper.pid 留着，避免同一次开机动出两个 keeper
+    rm -f "$MODDIR/run/supervisor.pid" "$MODDIR/run/daemon.pid" 2>/dev/null
 
-    start_supervisor "$MODDIR"
-    # 开机侧常驻看护：chen 被从最近任务划掉后，由它把看护补回来
+    # keeper 常驻（init 侧进程）：自愈、开关启停、负载看护都归它，和 chen 的进程无关。
+    # 所以 chen 被从最近任务划掉、甚至卸载，都不影响监听继续跑。
     start_keeper "$MODDIR"
-    log "boot: watchdog launched by boot.sh (mode=$BOOT_MODE)"
 
-    # ---------- 保护 3：运行期看护 ----------
-    nproc=$(grep -c '^processor' /proc/cpuinfo 2>/dev/null)
-    case "$nproc" in ''|*[!0-9]*) nproc=8 ;; esac
-    [ "$nproc" -lt 1 ] && nproc=8
-    limit=$((nproc * 400))      # loadavg 放大 100 倍后比较：4 倍核数
-    hi=0
-    ticks=0
-    hdone=0
-
-    while true; do
-        sleep 20
-        ticks=$((ticks + 1))
-
-        sp=$(cat "$MODDIR/run/supervisor.pid" 2>/dev/null | tr -d '\r\n')
-        if [ -z "$sp" ] || ! proc_alive "$sp"; then
-            log "watchdog: 监听已被停止，看护退出"
-            break
-        fi
-
-        # 活过 3 分钟就记为健康，下一次开机不再熔断
-        if [ "$hdone" = "0" ] && [ "$ticks" -ge 9 ]; then
-            date +%s > "$HEALTH" 2>/dev/null
-            hdone=1
-        fi
-
-        load=$(cut -d' ' -f1 /proc/loadavg 2>/dev/null | tr -d '.')
-        case "$load" in ''|*[!0-9]*) continue ;; esac
-        load=$(printf '%s' "$load" | cut -c1-7)
-
-        if [ "$load" -gt "$limit" ]; then
-            hi=$((hi + 1))
-        else
-            hi=0
-        fi
-
-        if [ "$hi" -ge 3 ]; then
-            log "watchdog: 系统负载持续过高（loadavg×100=$load > $limit），停止监听并熔断"
-            {
-                echo "监听已因系统负载过高被自动停止（安全熔断）。"
-                echo ""
-                echo "loadavg 连续 60 秒超过 $((${nproc} * 4))，说明监听把系统拖住了。"
-                echo "请把「每条间隔」调大、减少输入条数，再重新打开开关。"
-                echo "生成时间：$(date '+%Y-%m-%d %H:%M:%S')"
-            } > "$DISABLED"
-            kill_daemon "$MODDIR"
-            kill "$sp" 2>/dev/null
-            break
-        fi
-    done
+    if [ "$(get_conf status 1)" = "1" ]; then
+        start_supervisor "$MODDIR"
+    fi
+    log "boot: keeper launched (mode=$BOOT_MODE, status=$(get_conf status 1))"
 ) </dev/null >/dev/null 2>&1 &
