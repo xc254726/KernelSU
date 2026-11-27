@@ -525,6 +525,27 @@ supervisor_alive() {
     pid_matches "$(read_pid "$1/run/supervisor.pid")" supervisor.sh
 }
 
+# 完全脱离调用者的会话/进程组后再启动脚本。
+#
+# 监听原先是用 chen 的 root shell 直接拉起来的，那个 shell 是 app 进程树上的子进程：
+# 把 chen 从最近任务划掉时，ROM 连 shell 带子进程一起清掉，监听就没了。
+# setsid 会让子进程进入新的会话（没有控制终端，也就不吃 SIGHUP、不在同一进程组里）。
+detach_run() {
+    local script="$1" bb
+    if command -v setsid >/dev/null 2>&1; then
+        setsid sh "$script" </dev/null >/dev/null 2>&1 &
+        return 0
+    fi
+    # 部分 ROM 的 toybox 没编译 setsid，退回 KSU/Magisk 自带 busybox
+    for bb in /data/adb/ksu/bin/busybox /data/adb/magisk/busybox /system/bin/busybox /system/xbin/busybox; do
+        if [ -x "$bb" ]; then
+            "$bb" setsid sh "$script" </dev/null >/dev/null 2>&1 &
+            return 0
+        fi
+    done
+    nohup sh "$script" </dev/null >/dev/null 2>&1 &
+}
+
 # 拉起看门狗（单例；detach，开机/父 shell 退出都不影响）
 start_supervisor() {
     local moddir="$1" rundir="$1/run"
@@ -536,20 +557,29 @@ start_supervisor() {
     # 清掉失效的 pid 文件，避免阻塞新实例
     rm -f "$rundir/supervisor.pid" 2>/dev/null
 
-    if command -v setsid >/dev/null 2>&1; then
-        setsid sh "$moddir/bin/supervisor.sh" </dev/null >/dev/null 2>&1 &
-    else
-        nohup sh "$moddir/bin/supervisor.sh" </dev/null >/dev/null 2>&1 &
-    fi
+    detach_run "$moddir/bin/supervisor.sh"
 }
 
 # 启动 daemon（detach，避免父 shell 退出时被带走）
 start_daemon() {
     local moddir="$1" rundir="$1/run"
     mkdir -p "$rundir" 2>/dev/null
-    if command -v setsid >/dev/null 2>&1; then
-        setsid sh "$moddir/bin/daemon.sh" </dev/null >/dev/null 2>&1 &
-    else
-        nohup sh "$moddir/bin/daemon.sh" </dev/null >/dev/null 2>&1 &
+    detach_run "$moddir/bin/daemon.sh"
+}
+
+# keeper 是否活着（keeper = 开机侧常驻看护，与 chen 进程树无关）
+keeper_alive() {
+    pid_matches "$(read_pid "$1/run/keeper.pid")" keeper.sh
+}
+
+# 拉起 keeper（单例，detach）
+start_keeper() {
+    local moddir="$1" rundir="$1/run"
+    mkdir -p "$rundir" 2>/dev/null
+
+    if keeper_alive "$moddir"; then
+        return 0
     fi
+    rm -f "$rundir/keeper.pid" 2>/dev/null
+    detach_run "$moddir/bin/keeper.sh"
 }

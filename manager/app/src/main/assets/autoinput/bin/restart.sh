@@ -25,5 +25,8 @@ else
     log "restart.sh: watchdog was down, started"
 fi
 
+# keeper 记在开机侧：即使 chen 被划掉，它还会把看护补回来
+start_keeper "$MODDIR"
+
 sleep 2
 sh "$BIN_DIR/status.sh"

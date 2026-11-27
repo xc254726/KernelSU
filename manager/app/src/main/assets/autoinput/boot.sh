@@ -87,6 +87,8 @@ if [ "$same_boot" = "1" ]; then
     sp=$(read_pid "$MODDIR/run/supervisor.pid" 2>/dev/null)
     if [ -n "$sp" ] && proc_alive "$sp"; then
         blog "boot: 看护已在运行(pid=$sp)，跳过"
+        # keeper 也补一次：它负责在 chen 被划掉后把看护拉回来
+        start_keeper "$MODDIR"
         exit 0
     fi
     blog "boot: 看护未运行，补拉一次"
@@ -145,6 +147,8 @@ rm -f "$MODDIR/run/"*.pid 2>/dev/null
     rm -f "$MODDIR/run/"*.pid 2>/dev/null
 
     start_supervisor "$MODDIR"
+    # 开机侧常驻看护：chen 被从最近任务划掉后，由它把看护补回来
+    start_keeper "$MODDIR"
     log "boot: watchdog launched by boot.sh (mode=$BOOT_MODE)"
 
     # ---------- 保护 3：运行期看护 ----------

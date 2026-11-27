@@ -102,7 +102,10 @@ cleanup() {
     [ "$(cat "$LOCK_DIR/pid" 2>/dev/null | tr -d '\r\n')" = "$$" ] && rm -rf "$LOCK_DIR" 2>/dev/null
     log "daemon down (pid=$$)"
 }
-trap cleanup INT TERM HUP
+trap cleanup INT TERM
+# 挂断信号一律忽略：父 shell（chen 的 root shell）退出时会给整组发 HUP，
+# 监听不该因为这个死掉（老版本这里把 HUP 也接到 cleanup，划掉后台就停）
+trap '' HUP
 
 while true; do
     if [ "$(get_conf status 1)" != "1" ]; then

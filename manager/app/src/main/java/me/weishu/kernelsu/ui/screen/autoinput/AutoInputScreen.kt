@@ -122,7 +122,7 @@ private const val BOOT_SCRIPT = "/data/adb/service.d/chen-auto-input.sh"
 // 越狱模式（Magica `ksud late-load`）只执行 late-load.d 里的脚本，不会执行 service.d，
 // 所以启动脚本要双份安装；否则越狱重启后监听守护不会自己起来。
 private const val LATE_LOAD_SCRIPT = "/data/adb/late-load.d/chen-auto-input.sh"
-private const val BUNDLED_VERSION = "26"
+private const val BUNDLED_VERSION = "27"
 
 // 调试卡片（实时前台 / 最近运行记录）默认隐藏；需要排查时置 true 恢复显示
 private val SHOW_DEBUG_CARDS = false
@@ -136,6 +136,7 @@ private val SCRIPT_NAMES = listOf(
     "common.sh",
     "daemon.sh",
     "supervisor.sh",
+    "keeper.sh",
     "restart.sh",
     "status.sh",
     "diag.sh",
@@ -192,6 +193,7 @@ echo "STARTED"
 private const val REMOVE_SCRIPT = """
 CONF=/data/adb/auto_input
 for p in ${'$'}(pgrep -f 'auto_input/bin/[s]upervisor\.sh' 2>/dev/null); do kill -9 ${'$'}p 2>/dev/null; done
+for p in ${'$'}(pgrep -f 'auto_input/bin/[k]eeper\.sh' 2>/dev/null); do kill -9 ${'$'}p 2>/dev/null; done
 for p in ${'$'}(pgrep -f 'auto_input/bin/[d]aemon\.sh' 2>/dev/null); do kill -9 ${'$'}p 2>/dev/null; done
 hp=${'$'}(cat ${'$'}CONF/.script_hold_pid 2>/dev/null)
 [ -n "${'$'}hp" ] && kill -9 ${'$'}hp 2>/dev/null
