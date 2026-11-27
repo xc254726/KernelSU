@@ -91,16 +91,17 @@ fun Uri.getFileName(context: Context): String? {
 fun createRootShell(globalMnt: Boolean = false): Shell {
     Shell.enableVerboseLogging = BuildConfig.DEBUG
     val builder = Shell.Builder.create()
-    // 普通 root shell 先走系统 su：Magisk(面具) / APatch / KernelSU 都提供它，是最通用的入口。
+    // 按「内核里有没有 KSU」来决定走哪条通道，不能一刀切：
     //
-    // 原来的顺序是 ksud 优先，而 getKsuDaemonPath() 指向本 app 自带目录里的 libksud.so——
-    // 这个文件在任何设备上都存在，进程总能起来，只是连不上内核里的 KSU 时会立刻退出。
-    // ProcessBuilder 能把进程拉起来，所以 build() 不抛异常，下面的 catch 永远进不去，
-    // 也就永远 fallback 不到 su：装在没有 KSU 内核的设备（比如面具 root）上就是
-    // 「明明有 root，app 却拿不到」。
+    //  · 有 KSU 内核：必须走 ksud 的 debug su —— 这是管理器的专用通道，内核直接放行。
+    //    换成系统 su 会转去走普通授权流程，管理器拿不到（isRoot=false），
+    //    首页就会顶一条「获取 Root 失败！」。这条路径不要动。
+    //  · 没有 KSU 内核（Magisk / APatch）：ksud 连不上内核，起来就退出，
+    //    只能走系统 su，让它去弹对应管理器的授权框。
     //
-    // globalMnt 是 KSU 专有的全局挂载语义，保持 ksud 优先不动。
-    if (!globalMnt) {
+    // 判断用 Natives.version（读内核，不需要 root；没有 KSU 时是 -1）。
+    val hasKsuKernel = runCatching { Natives.version }.getOrDefault(-1) >= 0
+    if (!hasKsuKernel && !globalMnt) {
         try {
             return builder.build("su")
         } catch (e: Throwable) {
