@@ -122,7 +122,7 @@ private const val BOOT_SCRIPT = "/data/adb/service.d/chen-auto-input.sh"
 // 越狱模式（Magica `ksud late-load`）只执行 late-load.d 里的脚本，不会执行 service.d，
 // 所以启动脚本要双份安装；否则越狱重启后监听守护不会自己起来。
 private const val LATE_LOAD_SCRIPT = "/data/adb/late-load.d/chen-auto-input.sh"
-private const val BUNDLED_VERSION = "30"
+private const val BUNDLED_VERSION = "31"
 
 // 调试卡片（实时前台 / 最近运行记录）默认隐藏；需要排查时置 true 恢复显示
 private val SHOW_DEBUG_CARDS = false
@@ -331,6 +331,9 @@ private fun installScripts(context: Context, ksuCli: KsuCliRepository): String {
             .append("' | base64 -d > $LATE_LOAD_SCRIPT\n")
         append("chmod 755 $LATE_LOAD_SCRIPT\n")
         append("echo '$BUNDLED_VERSION' > $CONF_DIR/.bundled_version\n")
+        // 旧版本会在判定卡死时自动写 DISABLED 熔断，一旦命中监听就永远不自启。
+        // 升级时把这个历史标记清掉（用户自己写的 DISABLED 内容不同，会保留）。
+        append("if [ -f $CONF_DIR/DISABLED ] && grep -q '安全熔断\\|负载过高\\|监听把系统拖' $CONF_DIR/DISABLED 2>/dev/null; then rm -f $CONF_DIR/DISABLED; fi\n")
         // 配置只补齐缺失项，不覆盖用户已有设置
         append("[ -f $CONF_DIR/pkg.txt ] || : > $CONF_DIR/pkg.txt\n")
         append("[ -f $CONF_DIR/input.txt ] || : > $CONF_DIR/input.txt\n")
@@ -551,8 +554,19 @@ fun AutoInputScreen() {
         // app 只发「按新配置重启」的请求，绝不自己拉起 daemon/看护
         //（否则它们挂在 chen 的进程树上，划掉后台就被一起清掉）
         if (upgraded) {
-            withContext(Dispatchers.IO) { runRoot(ksuCli, "sh $BIN_DIR/ensure.sh >/dev/null 2>&1") }
-            delay(800)
+            // 脚本文件已覆盖，但 keeper / 看护 / daemon 是常驻进程，跑的还是内存里的旧代码。
+            // 必须把它们全部结束、交给 keeper 重拉，新逻辑（不再自动熔断、cgroup 自检）才会生效。
+            withContext(Dispatchers.IO) {
+                runRoot(
+                    ksuCli,
+                    "for f in keeper supervisor daemon; do " +
+                        "p=\$(cat $CONF_DIR/run/\$f.pid 2>/dev/null); " +
+                        "[ -n \"\$p\" ] && kill -9 \$p 2>/dev/null; " +
+                        "rm -f $CONF_DIR/run/\$f.pid; done; " +
+                        "sh $BIN_DIR/ensure.sh >/dev/null 2>&1",
+                )
+            }
+            delay(1200)
             refresh()
         }
         // 只读状态，不在这里拉起任何进程：自愈由开机侧 keeper 每 10 秒负责，

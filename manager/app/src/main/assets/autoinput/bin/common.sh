@@ -58,6 +58,18 @@ is_valid_pkg() {
 FG_CACHE_PKG=""
 FG_CACHE_TS=0
 
+# 从一行 dumpsys 输出里抠出包名。
+# 兼容几种写法：
+#   mCurrentFocus=Window{8f2a1 u0 com.netease.cloudmusic/com.netease...MainActivity}
+#   topResumedActivity=ActivityRecord{... u0 com.netease.cloudmusic/.MainActivity t123}
+#   ACTIVITY com.netease.cloudmusic/.activity.MainActivity pid=1234
+parse_pkg_line() {
+    sed -nE \
+        -e 's/.*[[:space:]]u[0-9]+[[:space:]]+([A-Za-z][A-Za-z0-9_]*(\.[A-Za-z0-9_]+)+)\/[^ ]*.*/\1/p' \
+        -e 's/.*ACTIVITY[[:space:]]+([A-Za-z][A-Za-z0-9_]*(\.[A-Za-z0-9_]+)+)\/[^ ]*.*/\1/p' \
+        | head -n 1
+}
+
 get_foreground_pkg() {
     local pkg="" now
 
@@ -68,14 +80,27 @@ get_foreground_pkg() {
         return 0
     fi
 
+    # 1) dumpsys window：输出最小，绝大多数 ROM 够用
     pkg=$(timeout 3 dumpsys window 2>/dev/null \
-        | grep -m1 'mCurrentFocus' \
-        | sed -E 's/.*u[0-9]+[[:space:]]+([A-Za-z0-9_.]+)\/[^ }]*.*/\1/')
+        | grep -m1 'mCurrentFocus' | parse_pkg_line)
 
+    # 2) 兜底 1：activity activities（新旧字段名都试）
     if ! is_valid_pkg "$pkg"; then
         pkg=$(timeout 5 dumpsys activity activities 2>/dev/null \
-            | grep -m1 'topResumedActivity' \
-            | sed -E 's/.*u[0-9]+[[:space:]]+([A-Za-z0-9_.]+)\/[^ ]*.*/\1/')
+            | grep -m1 -E 'topResumedActivity|mResumedActivity' | parse_pkg_line)
+    fi
+
+    # 3) 兜底 2：activity top（部分 ColorOS/realme 上前两种字段都取不到）
+    if ! is_valid_pkg "$pkg"; then
+        pkg=$(timeout 5 dumpsys activity top 2>/dev/null \
+            | grep -m1 'ACTIVITY' | parse_pkg_line)
+    fi
+
+    # 4) 兜底 3：dumpsys activity recents 的顶部任务
+    if ! is_valid_pkg "$pkg"; then
+        pkg=$(timeout 5 dumpsys activity recents 2>/dev/null \
+            | grep -m1 -E 'Recent #0|realActivity' \
+            | sed -nE 's/.*realActivity=[A-Za-z0-9_]*\/([A-Za-z0-9_.]+)\/.*/\1/p' | head -n 1)
     fi
 
     if ! is_valid_pkg "$pkg"; then
@@ -104,11 +129,12 @@ is_target() {
 is_noise_pkg() {
     case "$1" in
         ''|android) return 0 ;;
-        com.android.systemui) return 0 ;;
+        com.android.systemui|com.oplus.systemui|com.coloros.systemui) return 0 ;;
         *permissioncontroller*) return 0 ;;
         com.android.packageinstaller) return 0 ;;
-        *inputmethod*|*InputMethod*|*IME) return 0 ;;
+        *inputmethod*|*InputMethod*) return 0 ;;
         com.android.adbkeyboard|*AdbKeyboard*) return 0 ;;
+        com.oplus.notificationmanager|com.coloros.notification*) return 0 ;;
     esac
     return 1
 }
@@ -450,6 +476,7 @@ run_script_feed() {
     } | sh "$sp" >> "$slog" 2>&1 &
 
     SCRIPT_FEED_PID=$!
+    echo "$SCRIPT_FEED_PID" > "$CONF/run/script.pid" 2>/dev/null
     log "script feed pid=$SCRIPT_FEED_PID（脚本在后台运行，输出见 script.log）"
     return 0
 }
@@ -457,13 +484,15 @@ run_script_feed() {
 # 结束仍在运行的喂入/脚本进程
 kill_script_feed() {
     local p="$SCRIPT_FEED_PID"
+    [ -z "$p" ] && p=$(cat "$CONF/run/script.pid" 2>/dev/null | tr -d '\r\n')
     [ -z "$p" ] && return 0
-    proc_alive "$p" || { SCRIPT_FEED_PID=""; return 0; }
+    proc_alive "$p" || { SCRIPT_FEED_PID=""; rm -f "$CONF/run/script.pid" 2>/dev/null; return 0; }
     log "结束脚本进程 pid=$p"
     kill -TERM "$p" 2>/dev/null
     sleep 0.5
     proc_alive "$p" && kill -9 "$p" 2>/dev/null
     SCRIPT_FEED_PID=""
+    rm -f "$CONF/run/script.pid" 2>/dev/null
     return 0
 }
 
@@ -534,28 +563,41 @@ supervisor_alive() {
 #   * 部分 ROM 更进一步，直接清掉这棵子树。
 # 所以启动后必须把自身挪到 uid_0（root 的 cgroup）或 init：那里永不冻结、
 # 也不随任何一个 app 被清理。失败时返回 1，上层会写日志（便于真机定位）。
+# cgroup 路径是否还在某个普通应用的 uid 子树里（uid 10000~99999）。
+# 注意不能用 uid_10* 这种前缀匹配：uid_1000 是 system，uid_1001 是 radio，
+# 被误判成 app 会导致「明明已经挪出去了，却当成失败」。
+in_app_cgroup() {
+    echo "$1" | grep -qE '/uid_[1-9][0-9]{4}(/|$)'
+}
+
 escape_app_cgroup() {
-    local pid="$1" cur d after
+    local pid="$1" cur d after try
     [ -n "$pid" ] || pid=$$
     [ -r "/proc/$pid/cgroup" ] || return 1
 
     cur=$(cat "/proc/$pid/cgroup" 2>/dev/null)
-    # 已经在 root / init 的 cgroup，不用动
-    case "$cur" in
-        *"/uid_0"*|*":/init"*) echo "$pid" > /proc/self/oom_score_adj 2>/dev/null; return 0 ;;
-    esac
-
-    # 逐个尝试候选位置；写 cgroup.procs 成功后再确认一次真的换了地方
-    for d in /sys/fs/cgroup/uid_0 /sys/fs/cgroup/init /sys/fs/cgroup; do
-        [ -w "$d/cgroup.procs" ] || continue
-        echo "$pid" > "$d/cgroup.procs" 2>/dev/null || continue
-        after=$(cat "/proc/$pid/cgroup" 2>/dev/null)
-        case "$after" in
-            */uid_10*|*/uid_1[0-9][0-9][0-9][0-9]*) continue ;;   # 还在 app uid 里
-        esac
-        # 顺手把 OOM 权重降到最低：后台清理/内存回收时最后才轮到监听
-        echo -1000 > /proc/self/oom_score_adj 2>/dev/null
+    # 已经在 root / system / init 侧，不用动
+    if ! in_app_cgroup "$cur"; then
+        echo -1000 > "/proc/$pid/oom_score_adj" 2>/dev/null
         return 0
+    fi
+
+    # 部分 ROM 只在真正用到时才建 uid_0 / system 目录，先补齐
+    mkdir -p /sys/fs/cgroup/uid_0 /sys/fs/cgroup/system 2>/dev/null
+
+    # 写 cgroup.procs 可能因为 SELinux 或瞬时忙被拒，多试几轮
+    for try in 1 2 3; do
+        for d in /sys/fs/cgroup/uid_0 /sys/fs/cgroup/system /sys/fs/cgroup/init /sys/fs/cgroup; do
+            [ -e "$d/cgroup.procs" ] || continue
+            echo "$pid" > "$d/cgroup.procs" 2>/dev/null || continue
+            after=$(cat "/proc/$pid/cgroup" 2>/dev/null)
+            if ! in_app_cgroup "$after"; then
+                # 顺手把 OOM 权重降到最低：内存回收时最后才轮到监听
+                echo -1000 > "/proc/$pid/oom_score_adj" 2>/dev/null
+                return 0
+            fi
+        done
+        sleep 1
     done
     return 1
 }

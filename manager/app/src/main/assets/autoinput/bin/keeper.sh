@@ -7,9 +7,9 @@
 #
 # keeper 由开机脚本（service.d / late-load.d）拉起，父进程在 init 侧，与 chen 无关，常驻到重启：
 #   * status=1 且看护不在     -> 补拉看护
-#   * status=0 / 已熔断       -> 停掉看护和 daemon
+#   * status=0 / 用户手工禁用 -> 停掉看护和 daemon
 #   * run/reload 出现         -> 重启 daemon（app 改配置/切换开关只写这个标记，不再自己起进程）
-#   * loadavg 连续 3 次超 4×核数 -> 判定把系统拖死，停掉监听并写 DISABLED
+#   * loadavg 连续 3 次超 4×核数 -> 暂停 60 秒后自动恢复（不写 DISABLED、不关开关）
 BIN_DIR="${0%/*}"
 . "$BIN_DIR/common.sh"
 
@@ -49,6 +49,23 @@ HDONE=0
 STATE=""
 
 while true; do
+    # ---- 常驻自检：自己、看护、daemon 任一个被换回 app cgroup，都替它挪出来 ----
+    # ColorOS/realme 这类 ROM 清理后台时会把整棵 app cgroup 冻结（进程还在但一动不动），
+    # 表面看就是「划掉后台监听就不灵了」。被冻结的进程无法自救，所以由 keeper（已在
+    # uid_0）每轮代它写一次 cgroup.procs，把它拉回永不冻结的层级。
+    for _p in $$ $(read_pid "$MODDIR/run/supervisor.pid") $(read_pid "$MODDIR/run/daemon.pid"); do
+        [ -n "$_p" ] || continue
+        proc_alive "$_p" || continue
+        _cg=$(cat "/proc/$_p/cgroup" 2>/dev/null)
+        if in_app_cgroup "$_cg"; then
+            if escape_app_cgroup "$_p" 2>/dev/null; then
+                log "keeper: pid=$_p 曾被放回 app cgroup，已挪出 -> $(cat /proc/$_p/cgroup 2>/dev/null)"
+            else
+                log "keeper: pid=$_p 仍在 app cgroup（cgroup.procs 写入被拒），尝试继续运行"
+            fi
+        fi
+    done
+
     if [ "$HDONE" = "0" ]; then
         _now=$(date +%s 2>/dev/null)
         [ -z "$_now" ] && _now=0
@@ -98,7 +115,9 @@ while true; do
             hi=0
             ;;
         on)
-            # ---- 负载看护：连续 3 次（约 30 秒）超过 4×核数就熔断 ----
+            # ---- 负载看护：连续 3 次（约 30 秒）超过 4×核数 -> 暂停一会儿，不永久关闭 ----
+            # 以前这里会写 DISABLED 把监听彻底关掉，用户看到「已安全熔断」再也不会自启。
+            # 现在改成：只停掉这一轮，等 60 秒后由 keeper 自动重新拉起，开关始终保持「开」。
             load=$(cut -d' ' -f1 /proc/loadavg 2>/dev/null | tr -d '.')
             case "$load" in ''|*[!0-9]*) load=0 ;; esac
             load=$(printf '%s' "$load" | cut -c1-7)
@@ -108,18 +127,14 @@ while true; do
                 hi=0
             fi
             if [ "$hi" -ge 3 ]; then
-                log "keeper: 负载持续过高（loadavg×100=$load > $limit），停止监听并熔断"
-                {
-                    echo "监听已因系统负载过高被自动停止（安全熔断）。"
-                    echo ""
-                    echo "loadavg 连续 30 秒超过 $((${nproc} * 4))，说明监听把系统拖住了。"
-                    echo "请把「每条间隔」调大、减少输入条数，再重新打开开关。"
-                    echo "生成时间：$(date '+%Y-%m-%d %H:%M:%S')"
-                } > "$MODDIR/DISABLED"
+                log "keeper: 负载持续过高（loadavg×100=$load > $limit），暂停监听 60 秒后自动恢复（不关闭开关）"
                 kill_daemon "$MODDIR"
                 kill_supervisor "$MODDIR"
+                date +%s > "$MODDIR/run/throttle.ts" 2>/dev/null
                 hi=0
-                STATE="disabled"
+                STATE=""
+                sleep 60
+                continue
             fi
             ;;
     esac
