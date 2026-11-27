@@ -29,6 +29,7 @@ import android.widget.EditText;
 import android.widget.FrameLayout;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
+import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
 
@@ -98,6 +99,9 @@ public class GateActivity extends Activity {
     private boolean lastOpIsActivate = true;
     /** true = 当前面板是「别人已激活的卡密」触发的（付款后不会自动解绑，需卖家开通） */
     private boolean lastBorrowed = false;
+    /** 付款面板里已经下过单的卡密，避免每次点验证都新建订单 */
+    private String payOrderKey = "";
+    private ScrollView scroller;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -333,6 +337,8 @@ public class GateActivity extends Activity {
 
         payQr = new ImageView(this);
         payQr.setBackgroundColor(Color.WHITE);
+        payQr.setScaleType(ImageView.ScaleType.FIT_CENTER);
+        payQr.setPadding(dp(6), dp(6), dp(6), dp(6));
         LinearLayout.LayoutParams qlp = new LinearLayout.LayoutParams(dp(200), dp(200));
         qlp.topMargin = dp(12);
         payPanel.addView(payQr, qlp);
@@ -408,7 +414,26 @@ public class GateActivity extends Activity {
         dlp.topMargin = dp(22);
         root.addView(device, dlp);
 
-        return root;
+        // 付款面板展开后页面会变高：套一层滚动容器，二维码才不会被屏幕裁掉
+        scroller = new ScrollView(this);
+        scroller.setFillViewport(true);
+        scroller.setVerticalScrollBarEnabled(false);
+        scroller.addView(root, new FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.WRAP_CONTENT));
+        return scroller;
+    }
+
+    /** 付款面板展开后滚到底部，保证二维码完整可见 */
+    private void scrollToPay() {
+        if (scroller == null || payPanel == null) return;
+        if (payPanel.getVisibility() != View.VISIBLE) return;
+        scroller.post(new Runnable() {
+            @Override
+            public void run() {
+                // 直接滚到底：二维码和「我已付款」按钮都在最下面
+                scroller.fullScroll(View.FOCUS_DOWN);
+            }
+        });
     }
 
     /** 输入框：常态浅灰、聚焦白色 + 藏青描边 */
@@ -788,12 +813,64 @@ public class GateActivity extends Activity {
             payHint.setText("后台未配置收款码，请联系发卡方");
         } else {
             showPayCode(payUrl);
+            // 后台若接了支付网关，这里直接下单拿原生微信收款码（扫码即付）
+            if (!lastKey.equals(payOrderKey)) {
+                payOrderKey = lastKey;
+                loadNativePayCode(payUrl);
+            }
         }
         payPanel.setVisibility(View.VISIBLE);
+        scrollToPay();
+    }
+
+    /**
+     * 向后台下单，取支付网关返回的原始收款码：
+     * 微信 Native 下单会给 weixin://wxpay/bizpayurl?pr=xxx，本地编码成二维码，扫码直接拉起付款；
+     * 网关没配置/下单失败则保留 pay_url 的收款码（固定收款码图片或支付页链接）。
+     */
+    private void loadNativePayCode(final String fallback) {
+        if (lastKey == null || lastKey.isEmpty()) return;
+        new Thread(new Runnable() {
+            @Override
+            public void run() {
+                String code = null;
+                String money = null;
+                try {
+                    JSONObject body = new JSONObject();
+                    body.put("key", lastKey);
+                    JSONObject r = post("/pay/create", body);
+                    if (r != null && r.optBoolean("ok")) {
+                        String qc = r.optString("qrcode", "").trim();
+                        String pu = r.optString("payurl", "").trim();
+                        code = !qc.isEmpty() ? qc : pu;
+                        money = r.optString("money", "").trim();
+                    }
+                } catch (Exception ignored) {
+                }
+                final String fCode = code;
+                final String fMoney = money;
+                runOnUiThread(new Runnable() {
+                    @Override
+                    public void run() {
+                        if (payPanel.getVisibility() != View.VISIBLE) return;
+                        if (fMoney != null && !fMoney.isEmpty()) {
+                            payAmount.setText("¥ " + fMoney);
+                            payAmount.setVisibility(View.VISIBLE);
+                        }
+                        if (fCode != null && !fCode.isEmpty()) {
+                            payHint.setText("微信「扫一扫 → 相册」选这张码付款\n到账后点下方按钮");
+                            showPayCode(fCode);
+                            scrollToPay();
+                        }
+                    }
+                });
+            }
+        }).start();
     }
 
     private void hidePayPanel() {
         if (payPanel != null) payPanel.setVisibility(View.GONE);
+        payOrderKey = "";
     }
 
     /**
