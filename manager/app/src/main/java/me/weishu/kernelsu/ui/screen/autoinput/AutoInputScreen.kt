@@ -333,7 +333,8 @@ private fun installScripts(context: Context, ksuCli: KsuCliRepository): String {
         append("echo '$BUNDLED_VERSION' > $CONF_DIR/.bundled_version\n")
         // 旧版本会在判定卡死时自动写 DISABLED 熔断，一旦命中监听就永远不自启。
         // 升级时把这个历史标记清掉（用户自己写的 DISABLED 内容不同，会保留）。
-        append("if [ -f $CONF_DIR/DISABLED ] && grep -q '安全熔断\\|负载过高\\|监听把系统拖' $CONF_DIR/DISABLED 2>/dev/null; then rm -f $CONF_DIR/DISABLED; fi\n")
+        // 用 grep -E：toybox grep 对 BRE 的 \| 支持不稳定，不能依赖
+        append("if [ -f $CONF_DIR/DISABLED ] && grep -qE '安全熔断|负载过高|监听把系统拖' $CONF_DIR/DISABLED 2>/dev/null; then rm -f $CONF_DIR/DISABLED; fi\n")
         // 配置只补齐缺失项，不覆盖用户已有设置
         append("[ -f $CONF_DIR/pkg.txt ] || : > $CONF_DIR/pkg.txt\n")
         append("[ -f $CONF_DIR/input.txt ] || : > $CONF_DIR/input.txt\n")

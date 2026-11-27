@@ -38,7 +38,7 @@ blog "boot.sh invoked (mode=$BOOT_MODE, self=$0, uid=$(id -u 2>/dev/null))"
 # 旧版本会在判定卡死时自动写这个文件，导致升级后监听永远起不来：
 # 带旧版熔断说明的文件自动清掉，用户自己写的（内容不同）仍然生效。
 if [ -f "$DISABLED" ]; then
-    if grep -q "安全熔断\|负载过高\|监听把系统拖" "$DISABLED" 2>/dev/null; then
+    if grep -qE '安全熔断|负载过高|监听把系统拖' "$DISABLED" 2>/dev/null; then
         blog "boot: 发现旧版本自动熔断留下的 DISABLED，自动清除并继续启动"
         rm -f "$DISABLED" 2>/dev/null
     else
