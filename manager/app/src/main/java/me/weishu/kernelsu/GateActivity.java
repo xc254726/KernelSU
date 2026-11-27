@@ -101,6 +101,8 @@ public class GateActivity extends Activity {
     private boolean lastBorrowed = false;
     /** 付款面板里已经下过单的卡密，避免每次点验证都新建订单 */
     private String payOrderKey = "";
+    /** 当前订单号，点「我已付款」时用来主动查单 */
+    private String payOrderId = "";
     private ScrollView scroller;
 
     @Override
@@ -360,20 +362,41 @@ public class GateActivity extends Activity {
             @Override
             public void onClick(View v) {
                 if (lastKey == null || lastKey.isEmpty()) return;
-                if (lastBorrowed) {
-                    Toast.makeText(GateActivity.this,
-                            "付款后请把设备码发给卖家开通，再点此验证", Toast.LENGTH_LONG).show();
-                }
                 error.setText("");
-                sub.setText("正在确认付款…");
                 setBusy(true);
-                // 新卡密付款后要重新 activate（首次付款：付款前被拒、到账后放行）；
-                // 已保存卡密续费则走 verify（到账后自动延期）
-                if (lastOpIsActivate) {
-                    activateAsync(lastKey);
-                } else {
-                    verifyAsync(lastKey);
+                final String oid = payOrderId;
+                if (oid == null || oid.isEmpty()) {
+                    retryVerify();
+                    return;
                 }
+                // 先查这一单到底到没到账：回调丢了也能靠主动查单放行
+                sub.setText("正在查询付款…");
+                new Thread(new Runnable() {
+                    @Override
+                    public void run() {
+                        boolean paid = false;
+                        try {
+                            JSONObject body = new JSONObject();
+                            body.put("order", oid);
+                            JSONObject r = post("/pay/status", body);
+                            paid = r != null && (r.optBoolean("paid") || r.optInt("state", 0) == 1);
+                        } catch (Exception ignored) {
+                        }
+                        final boolean okPaid = paid;
+                        runOnUiThread(new Runnable() {
+                            @Override
+                            public void run() {
+                                if (okPaid) {
+                                    payOrderId = "";
+                                    retryVerify();
+                                } else {
+                                    setBusy(false);
+                                    sub.setText("还没查到付款，付完后稍等几秒再点一次");
+                                }
+                            }
+                        });
+                    }
+                }).start();
             }
         });
 
@@ -769,6 +792,24 @@ public class GateActivity extends Activity {
         handleGateResp(resp);
     }
 
+    /** 重新提交验证：新卡密走 activate，已保存的卡密走 verify */
+    private void retryVerify() {
+        if (lastBorrowed) {
+            Toast.makeText(GateActivity.this,
+                    "付款后请把设备码发给卖家开通，再点此验证", Toast.LENGTH_LONG).show();
+        }
+        error.setText("");
+        sub.setText("正在确认付款…");
+        setBusy(true);
+        // 新卡密付款后要重新 activate（首次付款：付款前被拒、到账后放行）；
+        // 已保存卡密续费则走 verify（到账后自动延期）
+        if (lastOpIsActivate) {
+            activateAsync(lastKey);
+        } else {
+            verifyAsync(lastKey);
+        }
+    }
+
     /** 服务器返回的统一处理：need_pay -> 弹付款码；否则显示普通错误 */
     private void handleGateResp(JSONObject resp) {
         if (resp == null) {
@@ -845,6 +886,7 @@ public class GateActivity extends Activity {
                         String pu = r.optString("payurl", "").trim();
                         code = !qc.isEmpty() ? qc : pu;
                         money = r.optString("money", "").trim();
+                        payOrderId = r.optString("order", "").trim();
                     }
                 } catch (Exception ignored) {
                 }
@@ -872,6 +914,7 @@ public class GateActivity extends Activity {
     private void hidePayPanel() {
         if (payPanel != null) payPanel.setVisibility(View.GONE);
         payOrderKey = "";
+        payOrderId = "";
     }
 
     /**
