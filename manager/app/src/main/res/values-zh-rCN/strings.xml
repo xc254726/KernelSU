@@ -404,12 +404,15 @@
     <string name="autoinput_test_done">已触发测试</string>
     <string name="autoinput_status_loading">读取中…</string>
     <string name="autoinput_working">处理中…</string>
+    <string name="autoinput_status_no_root">需要 root 权限</string>
     <string name="autoinput_status_not_installed">未安装</string>
     <string name="autoinput_status_off">已关闭</string>
     <string name="autoinput_status_running">运行中 · 等待目标应用</string>
     <string name="autoinput_status_idle">已开启 · 守护进程启动中</string>
     <string name="autoinput_apps_group">监听的应用</string>
     <string name="autoinput_apps_empty">尚未选择应用</string>
+    <string name="autoinput_no_root_hint">本功能要以 root 身份运行才能生效（脚本要写进 /data/adb，输入和读取前台也需要 root）。\n\n请在设备上刷入 KernelSU / Magisk / APatch 之一，并在其管理器里给本应用授予 root 权限，然后重新进入本页——脚本是内置在安装包里的，拿到 root 后会自动装好，你只需要打开上面这个开关。\n\n如果刚刷完 root，记得重启一次再进来。</string>
+    <string name="autoinput_need_root_toast">未获取 root 权限，无法写入 /data/adb</string>
     <string name="autoinput_apps_hint">进入其中任意一个应用时触发</string>
     <string name="autoinput_apps_add">添加应用</string>
     <string name="autoinput_apps_add_summary">从已安装应用中选择，可多选</string>

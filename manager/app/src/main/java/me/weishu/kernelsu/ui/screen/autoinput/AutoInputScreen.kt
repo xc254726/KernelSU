@@ -138,6 +138,7 @@ private val SCRIPT_NAMES = listOf(
 
 private const val STATUS_SCRIPT = """
 CONF=/data/adb/auto_input
+echo UID=${'$'}(id -u)
 [ -d ${'$'}CONF/bin ] && echo DIR=1 || echo DIR=0
 [ -f /data/adb/service.d/chen-auto-input.sh ] && echo BOOT=1 || echo BOOT=0
 sh ${'$'}CONF/bin/status.sh 2>/dev/null
@@ -191,6 +192,9 @@ echo REMOVED
 """
 
 private data class AutoInputStatus(
+    // 有没有 root：没有 root 时所有落盘/执行都会静默失败，必须单独区分出来告诉用户，
+    // 否则只会看到「未安装」还点不动（用户会以为是安装包缺东西）
+    val hasRoot: Boolean = true,
     val installed: Boolean = false,
     val bootRegistered: Boolean = false,
     val enabled: Boolean = true,
@@ -305,6 +309,10 @@ private fun installScripts(context: Context, ksuCli: KsuCliRepository): String {
 }
 
 private fun parseStatus(raw: String): AutoInputStatus = AutoInputStatus(
+    // 脚本里 echo UID=$(id -u)：只有真拿到 root shell 才是 0。
+    // 没有 root 时 libsu 会静默回落到普通 sh，此时所有命令都 Permission denied，
+    // 不能只看 DIR=0，否则用户只会看到「未安装」而不知道是缺 root。
+    hasRoot = raw.lineSequence().any { it.trim() == "UID=0" },
     installed = raw.contains("DIR=1"),
     bootRegistered = raw.contains("BOOT=1"),
     enabled = raw.lineSequence().firstOrNull { it.startsWith("status=") }
@@ -393,6 +401,7 @@ fun AutoInputScreen() {
     val msgScriptStarted = stringResource(R.string.autoinput_script_started)
     val msgScriptNoPath = stringResource(R.string.autoinput_script_no_path)
     val msgScriptNotFound = stringResource(R.string.autoinput_script_not_found)
+    val msgNoRoot = stringResource(R.string.autoinput_need_root_toast)
 
     suspend fun refresh(): AutoInputStatus {
         val rawStatus = withContext(Dispatchers.IO) { runRoot(ksuCli, STATUS_SCRIPT) }
@@ -430,6 +439,20 @@ fun AutoInputScreen() {
     }
 
     LaunchedEffect(Unit) {
+        // 先探一次 root：状态脚本里 echo 了 id -u，不是 UID=0 就说明没拿到 root shell。
+        // 没有 root 时写 /data/adb 一律 Permission denied，先不跑安装流程，只显示「需要 root」，
+        // 并每 5 秒重探一次——用户去 KernelSU/Magisk 里点了授权后会自动接上，不用退出重进。
+        var probe = withContext(Dispatchers.IO) { runRoot(ksuCli, STATUS_SCRIPT) }
+        fun probeHasRoot() = probe.lineSequence().any { it.trim() == "UID=0" }
+        if (!probeHasRoot()) {
+            pmApps = withContext(Dispatchers.IO) { loadPmApps(context) }
+            status = AutoInputStatus(hasRoot = false, enabled = false)
+            loaded = true
+            while (!probeHasRoot()) {
+                delay(5000)
+                probe = withContext(Dispatchers.IO) { runRoot(ksuCli, STATUS_SCRIPT) }
+            }
+        }
         val version = withContext(Dispatchers.IO) {
             runRoot(ksuCli, "cat $CONF_DIR/.bundled_version 2>/dev/null")
         }.trim()
@@ -474,6 +497,7 @@ fun AutoInputScreen() {
     val statusText = when {
         !loaded -> stringResource(R.string.autoinput_status_loading)
         busy -> stringResource(R.string.autoinput_working)
+        !status.hasRoot -> stringResource(R.string.autoinput_status_no_root)
         !status.installed -> stringResource(R.string.autoinput_status_not_installed)
         !status.enabled -> stringResource(R.string.autoinput_status_off)
         status.daemonRunning -> stringResource(R.string.autoinput_status_running)
@@ -488,6 +512,11 @@ fun AutoInputScreen() {
 
     val toggle: (Boolean) -> Unit = { on ->
         scope.launch {
+            // 兜底：没有 root 时给一句明确提示，而不是让它静默失败后仍是「未安装」
+            if (!status.hasRoot) {
+                snackBarHost.showReplacingSnackbar(msgNoRoot)
+                return@launch
+            }
             busy = true
             withContext(Dispatchers.IO) {
                 if (on) {
@@ -560,9 +589,29 @@ fun AutoInputScreen() {
                     loaded = loaded,
                     checked = status.installed && status.enabled,
                     running = status.installed && status.enabled && status.daemonRunning,
-                    enabled = loaded && !busy,
+                    enabled = loaded && !busy && status.hasRoot,
                     onCheckedChange = toggle,
                 )
+            }
+
+            // 没有 root：开关点不动，直接把原因和解决办法摆在页面上，
+            // 免得用户以为「点了没反应」是安装包有问题
+            if (loaded && !status.hasRoot) item {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 6.dp)
+                        .clip(RoundedCornerShape(18.dp))
+                        .background(MaterialTheme.colorScheme.surfaceContainerHigh)
+                        .padding(horizontal = 14.dp, vertical = 12.dp),
+                ) {
+                    Text(
+                        text = stringResource(R.string.autoinput_no_root_hint),
+                        fontSize = 12.sp,
+                        lineHeight = 18.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
             }
 
             if (SHOW_DEBUG_CARDS) item {
