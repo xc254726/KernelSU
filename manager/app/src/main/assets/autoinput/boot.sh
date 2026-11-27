@@ -1,6 +1,8 @@
 #!/system/bin/sh
-# Auto Input - 开机自启入口（KernelSU / Magisk 的 service.d，越狱模式下走 late-load.d）
-# 内容基于原模块 service.sh，MODDIR 固定到 /data/adb/auto_input（脚本常驻目录）
+# Auto Input - 开机自启入口（装两份，按启动来源分两种行为）
+#   /data/adb/service.d/chen-auto-input.sh   普通开机：等系统开机完成、确认 root 就绪后再拉起
+#   /data/adb/late-load.d/chen-auto-input.sh 越狱模式：chen 的 BootCompletedReceiver 开机完成时会自动越狱，
+#                                            本脚本随 late-load 以 root 执行，root 已经就绪 -> 直接拉起，不做等待
 #
 # 这个脚本是最后一道保险：即使用户把参数调到会让系统卡死的值，也必须能正常开机。
 # 三道保护：
@@ -21,8 +23,12 @@ mkdir -p "$MODDIR" "$MODDIR/run" 2>/dev/null
 
 blog() { echo "[$(date '+%m-%d %H:%M:%S')] $*" >> "$LOG" 2>/dev/null; }
 
-# 最早期打点，便于确认本脚本是否真的被执行
-blog "service.sh invoked (MODDIR=$MODDIR)"
+# 从哪个目录被执行的，就决定了这次开机的启动策略
+case "$0" in
+    *late-load.d*) BOOT_MODE=late ;;
+    *)             BOOT_MODE=service ;;
+esac
+blog "boot.sh invoked (mode=$BOOT_MODE, self=$0, uid=$(id -u 2>/dev/null))"
 
 # ---------- 保护 1：紧急开关 ----------
 if [ -f "$DISABLED" ]; then
@@ -31,52 +37,106 @@ if [ -f "$DISABLED" ]; then
 fi
 
 # ---------- 保护 2：开机熔断 ----------
+# 用 boot_id 区分「新的一次开机」和「同一次开机里又跑了一遍脚本」：
+# 越狱模式会被重复触发（开机自动越狱、手动越狱、重新打开开关），
+# 同一开机的第二次执行既不能再判熔断，也不能再拉一个看护（会双份输入）。
 ATT="$MODDIR/run/boot.attempts"
 HEALTH="$MODDIR/run/boot.health"
 now=$(date +%s 2>/dev/null)
 [ -z "$now" ] && now=0
 
-# 只保留 15 分钟内的启动记录，避免长期累积
+BOOTID=$(cat /proc/sys/kernel/random/boot_id 2>/dev/null | tr -d '\r\n')
+if [ -z "$BOOTID" ]; then
+    # boot_id 读不到时用「开机时刻」近似（now - uptime，按分钟取整），同一开机内稳定
+    up=$(cut -d. -f1 /proc/uptime 2>/dev/null | tr -d ' \r\n')
+    case "$up" in ''|*[!0-9]*) up="" ;; esac
+    [ -n "$up" ] && BOOTID="b$(( (now - up) / 60 ))"
+fi
+if [ -z "$BOOTID" ]; then
+    # 两者都拿不到：不做同开机去重，也不做熔断判定（宁可多起一次，也不能误杀自启）
+    BOOTID="unknown"
+    blog "boot: 无法识别开机标识，本次跳过熔断判定"
+fi
+
+same_boot=0
+prev_ts=0
 if [ -s "$ATT" ]; then
     : > "$ATT.tmp"
-    while IFS= read -r t || [ -n "$t" ]; do
-        t=$(printf '%s' "$t" | tr -d '\r')
-        [ -z "$t" ] && continue
-        [ $((now - t)) -lt 900 ] && echo "$t" >> "$ATT.tmp"
+    while IFS= read -r line || [ -n "$line" ]; do
+        line=$(printf '%s' "$line" | tr -d '\r')
+        [ -z "$line" ] && continue
+        bid=${line%% *}
+        ts=${line##* }
+        case "$ts" in ''|*[!0-9]*) ts=0 ;; esac
+        # 只保留 15 分钟内的启动记录，避免长期累积
+        [ "$ts" -gt 0 ] && [ $((now - ts)) -ge 900 ] && continue
+        [ "$bid" = "$BOOTID" ] && same_boot=1
+        [ "$ts" -gt "$prev_ts" ] && prev_ts=$ts
+        echo "$bid $ts" >> "$ATT.tmp"
     done < "$ATT"
     mv -f "$ATT.tmp" "$ATT" 2>/dev/null
 fi
 
-prev=$(tail -n 1 "$ATT" 2>/dev/null | tr -d '\r\n')
 healthy=$(cat "$HEALTH" 2>/dev/null | tr -d '\r\n')
+case "$healthy" in ''|*[!0-9]*) healthy=0 ;; esac
 
-# 上一次启动记录之后没有新的健康标记 -> 那次开机没活过 3 分钟，按卡死处理
-if [ -n "$prev" ] && { [ -z "$healthy" ] || [ "$healthy" -lt "$prev" ]; }; then
-    {
-        echo "开机自启已被安全熔断。"
-        echo ""
-        echo "原因：上一次开机在启动后 3 分钟内就重启了，疑似监听把系统拖死。"
-        echo "本文件存在期间不会自动拉起监听（不影响其它任何功能）。"
-        echo "删掉本文件、并在应用监听页重新打开开关即可恢复；恢复前请先把"
-        echo "「每条间隔」调大（不要设 0），并确认脚本和输入内容没有问题。"
-        echo "生成时间：$(date '+%Y-%m-%d %H:%M:%S')"
-    } > "$DISABLED"
-    blog "boot: 上次开机未留下健康标记，已熔断自启（写 DISABLED）"
-    exit 0
+if [ "$same_boot" = "1" ]; then
+    # 同一次开机：不判熔断，只在看护没跑时补拉一次
+    blog "boot: 本次开机已执行过（mode=$BOOT_MODE），检查看护状态"
+    . "$BIN_DIR/common.sh"
+    sp=$(read_pid "$MODDIR/run/supervisor.pid" 2>/dev/null)
+    if [ -n "$sp" ] && proc_alive "$sp"; then
+        blog "boot: 看护已在运行(pid=$sp)，跳过"
+        exit 0
+    fi
+    blog "boot: 看护未运行，补拉一次"
+else
+    # 新的一次开机：上一次启动记录之后没有新的健康标记 -> 那次开机没活过 3 分钟，按卡死处理
+    if [ "$prev_ts" -gt 0 ] && { [ "$healthy" -eq 0 ] || [ "$healthy" -lt "$prev_ts" ]; }; then
+        {
+            echo "开机自启已被安全熔断。"
+            echo ""
+            echo "原因：上一次开机在启动后 3 分钟内就重启了，疑似监听把系统拖死。"
+            echo "本文件存在期间不会自动拉起监听（不影响其它任何功能）。"
+            echo "删掉本文件、并在应用监听页重新打开开关即可恢复；恢复前请先把"
+            echo "「每条间隔」调大（不要设 0），并确认脚本和输入内容没有问题。"
+            echo "生成时间：$(date '+%Y-%m-%d %H:%M:%S')"
+        } > "$DISABLED"
+        blog "boot: 上次开机未留下健康标记，已熔断自启（写 DISABLED）"
+        exit 0
+    fi
+    echo "$BOOTID $now" >> "$ATT"
 fi
-echo "$now" >> "$ATT"
 
 # 开机时清理上一次运行残留的 pid 文件，避免单例保护误拦
 rm -f "$MODDIR/run/"*.pid 2>/dev/null
 
-# ---------- 后台等待开机完成后拉起看门狗 ----------
+# ---------- 后台等待时机成熟后拉起看门狗 ----------
 (
-    i=0
-    while [ "$(getprop sys.boot_completed)" != "1" ] && [ "$i" -lt 180 ]; do
+    if [ "$BOOT_MODE" = "late" ]; then
+        # 越狱：root 是这次 late-load 自己带起来的，早就绪了，直接拉起
+        blog "boot: 越狱模式，root 已就绪，直接拉起看护"
         sleep 2
+    else
+        # 其他模式：等系统开机完成
+        i=0
+        while [ "$(getprop sys.boot_completed)" != "1" ] && [ "$i" -lt 180 ]; do
+            sleep 2
+            i=$((i + 1))
+        done
+        sleep 5
+    fi
+
+    # 拉起前确认真的拿到了 root（越狱/授权都是异步的，等不到就别起，免得半死状态）
+    i=0
+    while [ "$(id -u 2>/dev/null)" != "0" ] && [ "$i" -lt 60 ]; do
+        sleep 1
         i=$((i + 1))
     done
-    sleep 5
+    if [ "$(id -u 2>/dev/null)" != "0" ]; then
+        blog "boot: 60 秒内没拿到 root，跳过本次自启"
+        exit 0
+    fi
 
     . "$BIN_DIR/common.sh"
 
@@ -85,7 +145,7 @@ rm -f "$MODDIR/run/"*.pid 2>/dev/null
     rm -f "$MODDIR/run/"*.pid 2>/dev/null
 
     start_supervisor "$MODDIR"
-    log "boot: watchdog launched by service.sh"
+    log "boot: watchdog launched by boot.sh (mode=$BOOT_MODE)"
 
     # ---------- 保护 3：运行期看护 ----------
     nproc=$(grep -c '^processor' /proc/cpuinfo 2>/dev/null)
