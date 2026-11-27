@@ -427,13 +427,14 @@ public class GateActivity extends Activity {
     private void scrollToPay() {
         if (scroller == null || payPanel == null) return;
         if (payPanel.getVisibility() != View.VISIBLE) return;
-        scroller.post(new Runnable() {
+        // 等面板完成测量（含二维码图片）再滚，避免滚早了停在半截
+        scroller.postDelayed(new Runnable() {
             @Override
             public void run() {
                 // 直接滚到底：二维码和「我已付款」按钮都在最下面
                 scroller.fullScroll(View.FOCUS_DOWN);
             }
-        });
+        }, 200);
     }
 
     /** 输入框：常态浅灰、聚焦白色 + 藏青描边 */
