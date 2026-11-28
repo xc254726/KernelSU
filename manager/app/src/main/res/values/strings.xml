@@ -510,8 +510,8 @@
     <string name="hide_state_stopped">Daemon: stopped</string>
     <string name="hide_state_apk_ok">APK: ready</string>
     <string name="hide_state_apk_missing">APK: missing</string>
-    <string name="hide_state_installed">Chen: installed</string>
-    <string name="hide_state_uninstalled">Chen: uninstalled</string>
+    <string name="hide_state_installed">Chen: still there</string>
+    <string name="hide_state_uninstalled">Chen: gone</string>
     <string name="hide_state_backup">data backed up</string>
     <string name="hide_state_trigger">Trigger: %1$s · %2$s</string>
     <string name="hide_hide_section">Hide (uninstall Chen)</string>

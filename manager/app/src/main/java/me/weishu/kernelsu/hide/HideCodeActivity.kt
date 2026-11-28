@@ -303,7 +303,7 @@ class HideCodeActivity : Activity() {
         runBusy(getString(R.string.hide_test_running)) {
             val out = ChenGuard.testRestore()
             runOnUiThread {
-                val ok = out.contains("INSTALLED=1")
+                val ok = out.contains("VISIBLE=1") || out.contains("INSTALLED=1")
                 toast(getString(if (ok) R.string.hide_done else R.string.hide_failed))
                 refreshStatus()
             }
@@ -338,7 +338,11 @@ class HideCodeActivity : Activity() {
             runOnUiThread {
                 if (out.contains("OK")) {
                     toast(getString(R.string.hide_hide_queued))
-                    finish()
+                    // 守护要在 3 秒后才动手，这里停一会儿再刷新状态，
+                    // 让「Chen：仍在 / 已隐藏」和最后几行日志直接显示出来，
+                    // 失败时不用再去翻 guard.log 才知道原因
+                    android.os.Handler(android.os.Looper.getMainLooper())
+                        .postDelayed({ if (!isFinishing) refreshStatus() }, 9000)
                 } else {
                     toast(getString(R.string.hide_failed))
                 }

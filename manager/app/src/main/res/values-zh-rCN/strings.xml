@@ -502,8 +502,8 @@
     <string name="hide_state_stopped">守护：未运行</string>
     <string name="hide_state_apk_ok">安装包：已备好</string>
     <string name="hide_state_apk_missing">安装包：缺失</string>
-    <string name="hide_state_installed">Chen：已安装</string>
-    <string name="hide_state_uninstalled">Chen：已卸载</string>
+    <string name="hide_state_installed">Chen：仍在（桌面可见）</string>
+    <string name="hide_state_uninstalled">Chen：已消失（桌面/列表都看不到）</string>
     <string name="hide_state_backup">有数据备份</string>
     <string name="hide_state_trigger">触发：%1$s · %2$s</string>
     <string name="hide_hide_section">隐藏（卸载 Chen）</string>

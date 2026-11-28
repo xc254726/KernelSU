@@ -98,7 +98,9 @@ object ChenGuard {
             append("p=\$(cat $DIR/run/pid 2>/dev/null | tr -dc '0-9'); ")
             append("[ -n \"\$p\" ] && [ -d /proc/\$p ] && echo 1 || echo 0\n")
             append("echo @@INST\n")
-            append("pm path ${context.packageName} >/dev/null 2>&1 && echo 1 || echo 0\n")
+            // 用「用户可见」判断，而不是 pm path：被 hide / disable-user 之后
+            // pm path 照样有输出，但桌面和应用列表里早就没有了
+            append("pm list packages -e --user 0 2>/dev/null | grep -qx 'package:${context.packageName}' && echo 1 || echo 0\n")
             append("echo @@APK\n")
             append("[ -f $DIR/chen.apk ] && echo 1 || echo 0\n")
             append("echo @@BAK\n")

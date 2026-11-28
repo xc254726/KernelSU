@@ -199,6 +199,28 @@ key_gate() {
     [ "$hit" = "1" ]
 }
 
+# ---------------------------------------------------------------- 包状态
+
+# 包对 user 0 是否「看得见」。
+# 不能用 pm path 判断：hide / disable-user 之后 pm path 照样有输出，
+# 但桌面、应用列表、搜索里都已经没有了——那才是用户要的「删掉」。
+pkg_visible() {
+    pm list packages -e --user 0 2>/dev/null | tr -d '\r' | grep -qx "package:$PKG"
+}
+
+# 跑一条包管理命令，成功且包从用户视角消失才算通过
+try_pm() {
+    local rc
+    "$@" >>"$LOG" 2>&1
+    rc=$?
+    if [ "$rc" = "0" ] && ! pkg_visible; then
+        log "pm: 成功 ← $*"
+        return 0
+    fi
+    log "pm: 失败 rc=$rc ← $*"
+    return 1
+}
+
 # ---------------------------------------------------------------- 装回来
 
 install_payload() {
@@ -233,7 +255,7 @@ install_payload() {
     fi
 
     sleep 1
-    if pm path "$PKG" >/dev/null 2>&1; then
+    if pkg_visible; then
         log "install: ok (rc=$rc)"
         return 0
     fi
@@ -275,11 +297,19 @@ launch_chen() {
 }
 
 restore() {
-    local why="$1"
+    local why="$1" mode
     log "restore: 触发（$why）"
-    if ! pm path "$PKG" >/dev/null 2>&1; then
-        install_payload || return 1
-        restore_data
+    mode=$(cat "$MODDIR/lastmode" 2>/dev/null | tr -d '\r\n')
+    if ! pkg_visible; then
+        # 可能只是被 hide / disable-user 藏起来了，先放出来，省一次重装
+        pm unhide --user 0 "$PKG" >/dev/null 2>&1
+        pm enable --user 0 "$PKG" >/dev/null 2>&1
+        if pkg_visible; then
+            log "restore: 包还在（$mode），已解除隐藏，数据未动"
+        else
+            install_payload || return 1
+            restore_data
+        fi
     fi
     # 以前开过「隐藏桌面图标」的话，入口组件是禁用的，先放开
     pm enable "$PKG" >/dev/null 2>&1
@@ -291,23 +321,36 @@ restore() {
 # ---------------------------------------------------------------- 卸载（备份数据）
 
 do_uninstall() {
-    local rc
+    local mode=""
     rm -rf "$BAK" 2>/dev/null
     mkdir -p "$BAK" 2>/dev/null
     if [ -d "/data/data/$PKG" ]; then
         cp -a "/data/data/$PKG/." "$BAK/" 2>>"$LOG"
         log "uninstall: 已备份数据 $(du -sk "$BAK" 2>/dev/null | awk '{print $1}')KB"
     fi
-    pm uninstall --user 0 "$PKG" >>"$LOG" 2>&1
-    rc=$?
-    if [ "$rc" != "0" ]; then
-        pm uninstall "$PKG" >>"$LOG" 2>&1
-        rc=$?
+
+    # 关键一步：先停掉 Chen 自己。
+    # 上一版在 Chen 还活着的时候直接 pm uninstall，PMS 回的是
+    # 「Failed transaction (EX_BAD_PARCELABLE)」——包正持有 PackageInstaller
+    # 会话 / 正被 binder 引用时，deletePackage 会在中途抛出来，两条卸载命令全废。
+    am force-stop "$PKG" >/dev/null 2>&1
+    sleep 2
+
+    if pkg_visible; then
+        if   try_pm pm uninstall --user 0 "$PKG";          then mode="uninstall"
+        elif try_pm cmd package uninstall --user 0 "$PKG"; then mode="uninstall"
+        elif try_pm pm uninstall -k --user 0 "$PKG";       then mode="uninstall-keep"
+        elif try_pm pm hide --user 0 "$PKG";               then mode="hide"
+        elif try_pm pm disable-user --user 0 "$PKG";       then mode="disable"
+        fi
     fi
-    if pm path "$PKG" >/dev/null 2>&1; then
-        log "uninstall: 失败 (rc=$rc)"
+
+    if [ -n "$mode" ] && ! pkg_visible; then
+        echo "$mode" > "$MODDIR/lastmode" 2>/dev/null
+        log "uninstall: ok（方式 $mode），Chen 已从桌面和应用列表消失，守护继续运行"
     else
-        log "uninstall: ok，Chen 已卸载，守护继续运行"
+        rm -f "$MODDIR/lastmode" 2>/dev/null
+        log "uninstall: 失败，Chen 仍然可见；守护未改动"
     fi
     rm -f "$MODDIR/uninstall.req" 2>/dev/null
 }
@@ -366,7 +409,7 @@ run_loop() {
 
         # 装回来了才算「已处理」，等用户离开这个应用；装失败则退避 20 秒再试，
         # 否则会每秒重试一次，日志刷爆、system_server 也被拖住
-        if pm path "$PKG" >/dev/null 2>&1; then
+        if pkg_visible; then
             in_target=1
         else
             in_target=0
@@ -432,9 +475,18 @@ case "$1" in
     uninstall) cfg; do_uninstall ;;
     once)
         cfg
-        restore "manual-test"
-        echo "--- result ---"
-        pm path "$PKG" >/dev/null 2>&1 && echo "INSTALLED=1" || echo "INSTALLED=0"
+        if pkg_visible; then
+            # 已经看得见，就不用重装，只验证能不能拉起来
+            echo "VISIBLE=1"
+            pm enable "$PKG" >/dev/null 2>&1
+            pm enable "$MAIN" >/dev/null 2>&1
+            launch_chen >/dev/null 2>&1
+            echo "LAUNCHED=$?"
+        else
+            echo "VISIBLE=0"
+            restore "manual-test"
+            pkg_visible && echo "INSTALLED=1" || echo "INSTALLED=0"
+        fi
         tail -n 6 "$LOG" 2>/dev/null
         ;;
     *)
