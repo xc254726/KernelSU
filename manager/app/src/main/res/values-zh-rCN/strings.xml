@@ -478,18 +478,46 @@
     <string name="autoinput_back">返回</string>
     <string name="autoinput_files_empty">此目录没有 sh 脚本</string>
 
-    <!-- 隐藏面具：拨号暗号入口 -->
-    <string name="hide_title">隐藏面具</string>
-    <string name="hide_summary">拨号暗号打开，可隐藏桌面图标</string>
-    <string name="hide_intro">设一个只有你知道的数字。之后在手机拨号盘输入这个暗号就能打开本应用——桌面图标隐藏了也能进。隐藏图标只是把入口藏起来，不会卸载任何东西：root、模块、设置全都不受影响。</string>
-    <string name="hide_code_label">暗号（纯数字）</string>
-    <string name="hide_icon_label">隐藏桌面图标</string>
-    <string name="hide_icon_summary">开启后，桌面和应用搜索里都找不到本应用，只能靠拨号暗号进来。</string>
-    <string name="hide_save">保存</string>
-    <string name="hide_test">去拨号盘试一试</string>
-    <string name="hide_bad_code">暗号请用 3–10 位数字</string>
-    <string name="hide_saved_hidden">已保存。图标已隐藏，拨暗号即可打开。</string>
-    <string name="hide_saved_shown">已保存。图标已恢复显示。</string>
+    <!-- 隐藏与找回：卸载后靠 root 守护装回来 -->
+    <string name="hide_title">隐藏与找回</string>
+    <string name="hide_summary">卸载后靠指定应用一键找回</string>
+    <string name="hide_intro">卸掉 Chen 之后，手机里没有任何应用能收到广播，所以「怎么把它装回来」只能靠一个不依赖 app 的 root 守护。点「布置守护」会把这个守护装到 /data/adb（开机自启，划掉后台、卸载 Chen 都不影响它）；点「现在隐藏」才会真正卸载 Chen。之后打开你选的那个应用、按一下音量键，它会静默把 Chen 装回来并直接跳进去。</string>
+    <string name="hide_target_label">触发应用（打开它 = 准备找回）</string>
+    <string name="hide_target_none">还没选（点这里挑一个应用）</string>
+    <string name="hide_choose_title">选一个触发应用</string>
+    <string name="hide_no_apps">没有可选的桌面应用</string>
+    <string name="hide_trigger_label">触发方式</string>
+    <string name="hide_trigger_up">按音量上</string>
+    <string name="hide_trigger_down">按音量下</string>
+    <string name="hide_trigger_any">按音量上或下都行</string>
+    <string name="hide_trigger_auto">不用按，打开就触发</string>
+    <string name="hide_arm">布置 / 更新守护</string>
+    <string name="hide_arm_running">正在把守护脚本和 Chen 的安装包写到 /data/adb…</string>
+    <string name="hide_arm_ok">守护已就位</string>
+    <string name="hide_test">测试找回（不卸载）</string>
+    <string name="hide_test_running">正在执行一次找回…</string>
+    <string name="hide_done">完成</string>
+    <string name="hide_status_loading">读取状态…</string>
+    <string name="hide_state_running">守护：运行中</string>
+    <string name="hide_state_stopped">守护：未运行</string>
+    <string name="hide_state_apk_ok">安装包：已备好</string>
+    <string name="hide_state_apk_missing">安装包：缺失</string>
+    <string name="hide_state_installed">Chen：已安装</string>
+    <string name="hide_state_uninstalled">Chen：已卸载</string>
+    <string name="hide_state_backup">有数据备份</string>
+    <string name="hide_state_trigger">触发：%1$s · %2$s</string>
+    <string name="hide_hide_section">隐藏（卸载 Chen）</string>
+    <string name="hide_hide_tip">卸载后桌面、应用列表里都不会有 Chen，就是一个没装过它的系统。找回来只需打开上面那个应用。</string>
+    <string name="hide_hide_button">现在隐藏（卸载 Chen）</string>
+    <string name="hide_hide_confirm">会先把 Chen 的应用数据备份到 /data/adb/chen_guard/data，再卸载 Chen。之后打开「触发应用」并按音量键即可装回来，数据一起恢复。确认继续？</string>
+    <string name="hide_hide_running">正在备份数据并卸载…</string>
+    <string name="hide_hide_queued">已排队：3 秒后 Chen 会消失。用触发应用 + 音量键找回。</string>
+    <string name="hide_need_arm">请先点「布置守护」，否则卸载后没有东西能把它装回来</string>
+    <string name="hide_stop">停止守护并清除开机自启</string>
+    <string name="hide_stop_running">正在停止…</string>
+    <string name="hide_stop_ok">守护已停止</string>
+    <string name="hide_icon_label">只隐藏桌面图标（不卸载）</string>
+    <string name="hide_icon_summary">轻量方案：Chen 还装着，只是桌面和搜索里看不到；这个页面仍可从「设置 → 应用」打开。</string>
     <string name="hide_icon_failed">修改桌面图标失败</string>
-    <string name="hide_no_dialer">没找到电话应用</string>
+    <string name="hide_failed">失败，看下面日志</string>
 </resources>
