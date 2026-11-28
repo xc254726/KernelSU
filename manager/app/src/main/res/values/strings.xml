@@ -489,16 +489,16 @@
     <!-- Hide & restore: a root daemon reinstalls the app after uninstall -->
     <string name="hide_title">Hide &amp; restore</string>
     <string name="hide_summary">Uninstall it, get it back from a chosen app</string>
-    <string name="hide_intro">Once Chen is uninstalled there is no app left to receive any broadcast, so the only way back is a root daemon that does not depend on any app. "Prepare daemon" installs it into /data/adb (starts at boot, unaffected by clearing recents or uninstalling Chen). "Hide now" performs the real uninstall. Afterwards, open the app you picked and press a volume key: the daemon silently installs Chen again and opens it.</string>
+    <string name="hide_intro">Once Chen is uninstalled there is no app left to receive any broadcast, so the only way back is a root daemon that does not depend on any app. "Prepare daemon" installs it into /data/adb (starts at boot, unaffected by clearing recents or uninstalling Chen). "Hide now" performs the real uninstall. Afterwards, open the app you picked and hold a volume key for the configured seconds: the daemon silently installs Chen again and opens it.</string>
     <string name="hide_target_label">Trigger app (open it to restore)</string>
     <string name="hide_target_none">Not selected (tap to pick an app)</string>
     <string name="hide_choose_title">Pick a trigger app</string>
     <string name="hide_no_apps">No launchable app found</string>
     <string name="hide_trigger_label">Trigger</string>
-    <string name="hide_trigger_up">Volume up</string>
-    <string name="hide_trigger_down">Volume down</string>
-    <string name="hide_trigger_any">Either volume key</string>
-    <string name="hide_trigger_auto">No key, trigger on open</string>
+    <string name="hide_trigger_up">Hold volume up</string>
+    <string name="hide_trigger_down">Hold volume down</string>
+    <string name="hide_trigger_any">Hold either volume key</string>
+    <string name="hide_trigger_auto">No key, wait after opening</string>
     <string name="hide_arm">Prepare / update daemon</string>
     <string name="hide_arm_running">Writing daemon scripts and the APK to /data/adb…</string>
     <string name="hide_arm_ok">Daemon ready</string>
@@ -515,7 +515,7 @@
     <string name="hide_state_backup">data backed up</string>
     <string name="hide_state_trigger">Trigger: %1$s · %2$s</string>
     <string name="hide_hide_section">Hide (uninstall Chen)</string>
-    <string name="hide_hide_tip">After uninstall, Chen is gone from the launcher and the app list — like a phone that never had it. Open the trigger app to get it back.</string>
+    <string name="hide_hide_tip">After uninstall, Chen is gone from the launcher and the app list — like a phone that never had it. Open the trigger app and use the trigger you set to get it back.</string>
     <string name="hide_hide_button">Hide now (uninstall Chen)</string>
     <string name="hide_hide_confirm">Chen data is backed up to /data/adb/chen_guard/data first, then Chen is uninstalled. Later, open the trigger app and press a volume key to install it back with data restored. Continue?</string>
     <string name="hide_hide_running">Backing up data and uninstalling…</string>
@@ -528,4 +528,9 @@
     <string name="hide_icon_summary">Light option: Chen stays installed, just invisible on the home screen and in search; this page is still reachable from Settings → Apps.</string>
     <string name="hide_icon_failed">Failed to change the launcher icon</string>
     <string name="hide_failed">Failed, see the log below</string>
+    <string name="hide_hold_label">Hold for</string>
+    <string name="hide_wait_label">Wait after open</string>
+    <string name="hide_seconds_unit">s</string>
+    <string name="hide_trigger_desc_hold">%1$s for %2$d s</string>
+    <string name="hide_trigger_desc_wait">wait %1$d s after opening</string>
 </resources>

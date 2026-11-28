@@ -7,6 +7,7 @@ import android.graphics.Typeface
 import android.os.Bundle
 import android.view.View
 import android.widget.Button
+import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.RadioButton
 import android.widget.RadioGroup
@@ -36,6 +37,8 @@ class HideCodeActivity : Activity() {
     private lateinit var targetView: TextView
     private lateinit var statusView: TextView
     private lateinit var triggerGroup: RadioGroup
+    private lateinit var holdInput: EditText
+    private lateinit var waitInput: EditText
     private lateinit var armButton: Button
     private lateinit var testButton: Button
     private lateinit var hideButton: Button
@@ -96,6 +99,12 @@ class HideCodeActivity : Activity() {
         addRadio(triggerGroup, ChenGuard.TRIGGER_AUTO, getString(R.string.hide_trigger_auto))
         root.addView(triggerGroup)
         checkTrigger(ChenGuard.trigger(this))
+
+        // ---------------- 时长 ----------------
+        holdInput = timingRow(root, getString(R.string.hide_hold_label), ChenGuard.hold(this))
+        waitInput = timingRow(root, getString(R.string.hide_wait_label), ChenGuard.waitSec(this))
+        updateTimingEnabled()
+        triggerGroup.setOnCheckedChangeListener { _, _ -> updateTimingEnabled() }
 
         // ---------------- 主操作 ----------------
         armButton = primaryButton(getString(R.string.hide_arm)) { arm() }
@@ -172,6 +181,60 @@ class HideCodeActivity : Activity() {
         textSize = 12f
         setTextColor(0xFF8A8B99.toInt())
         setPadding(0, (dp * 12).toInt(), 0, 0)
+    }
+
+    /** 「长按时长 / 等待时长」一行：标签 + 数字输入 + 单位。 */
+    private fun timingRow(parent: LinearLayout, label: String, value: Int): EditText {
+        val row = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = android.view.Gravity.CENTER_VERTICAL
+            setPadding(0, (dp * 6).toInt(), 0, (dp * 2).toInt())
+        }
+        row.addView(
+            TextView(this).apply {
+                text = label
+                textSize = 14f
+                setTextColor(0xFF15151C.toInt())
+                layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+            },
+        )
+        val input = EditText(this).apply {
+            setText(value.toString())
+            inputType = android.text.InputType.TYPE_CLASS_NUMBER
+            textSize = 15f
+            gravity = android.view.Gravity.CENTER
+            setSelectAllOnFocus(true)
+            filters = arrayOf<android.text.InputFilter>(android.text.InputFilter.LengthFilter(3))
+            layoutParams = LinearLayout.LayoutParams((dp * 68).toInt(), LinearLayout.LayoutParams.WRAP_CONTENT)
+        }
+        row.addView(input)
+        row.addView(
+            TextView(this).apply {
+                text = getString(R.string.hide_seconds_unit)
+                textSize = 14f
+                setTextColor(0xFF6B6C7C.toInt())
+                setPadding((dp * 6).toInt(), 0, 0, 0)
+            },
+        )
+        parent.addView(row)
+        return input
+    }
+
+    /** 「打开就触发」时，长按时长没意义，置灰。 */
+    private fun updateTimingEnabled() {
+        val auto = selectedTrigger() == ChenGuard.TRIGGER_AUTO
+        if (::holdInput.isInitialized) holdInput.isEnabled = !auto
+        if (::waitInput.isInitialized) waitInput.isEnabled = true
+    }
+
+    private fun holdValue(): Int {
+        val v = if (::holdInput.isInitialized) holdInput.text.toString().trim().toIntOrNull() else null
+        return (v ?: ChenGuard.DEFAULT_HOLD).coerceIn(1, 20)
+    }
+
+    private fun waitValue(): Int {
+        val v = if (::waitInput.isInitialized) waitInput.text.toString().trim().toIntOrNull() else null
+        return (v ?: ChenGuard.DEFAULT_WAIT).coerceIn(1, 120)
     }
 
     private fun addRadio(group: RadioGroup, tag: String, text: String) {
@@ -289,7 +352,7 @@ class HideCodeActivity : Activity() {
         if (busy) return
         val trigger = selectedTrigger()
         runBusy(getString(R.string.hide_arm_running)) {
-            val out = ChenGuard.arm(this, targetPkg, trigger)
+            val out = ChenGuard.arm(this, targetPkg, trigger, holdValue(), waitValue())
             runOnUiThread {
                 val ok = out.contains("started") || out.contains("GUARD_OK")
                 toast(getString(if (ok) R.string.hide_arm_ok else R.string.hide_failed))
@@ -327,7 +390,7 @@ class HideCodeActivity : Activity() {
                 return@runBusy
             }
             // 卸载前必须确认守护真的在跑：否则 Chen 一消失就再也没东西能把它装回来
-            ChenGuard.arm(this, targetPkg, selectedTrigger())
+            ChenGuard.arm(this, targetPkg, selectedTrigger(), holdValue(), waitValue())
             val status = ChenGuard.status(this)
             if (!status.apkReady || !status.running) {
                 runOnUiThread { toast(getString(R.string.hide_need_arm)) }
@@ -381,13 +444,16 @@ class HideCodeActivity : Activity() {
                     append(getString(R.string.hide_state_backup))
                 }
                 append('\n')
-                append(
+                val triggerDesc = if (trigger == ChenGuard.TRIGGER_AUTO) {
+                    getString(R.string.hide_trigger_desc_wait, status.waitSec)
+                } else {
                     getString(
-                        R.string.hide_state_trigger,
-                        targetLabel,
+                        R.string.hide_trigger_desc_hold,
                         ChenGuard.triggerLabel(this@HideCodeActivity, trigger),
-                    ),
-                )
+                        status.hold,
+                    )
+                }
+                append(getString(R.string.hide_state_trigger, targetLabel, triggerDesc))
                 if (status.logTail.isNotBlank()) {
                     append("\n\n")
                     append(status.logTail.take(400))

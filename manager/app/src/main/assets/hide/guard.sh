@@ -58,6 +58,16 @@ cfg() {
     [ -z "$MAIN" ] && MAIN="$PKG/.GateActivity"
     [ -z "$TRIGGER" ] && TRIGGER=volup
     [ -z "$ENABLED" ] && ENABLED=1
+
+    HOLD=$(sed -n 's/^HOLD=//p' "$CONF" 2>/dev/null | head -n 1 | tr -dc '0-9')
+    WAIT=$(sed -n 's/^WAIT=//p' "$CONF" 2>/dev/null | head -n 1 | tr -dc '0-9')
+    [ -z "$HOLD" ] && HOLD=3
+    [ -z "$WAIT" ] && WAIT=10
+    # 夹在合理区间，防止 conf 被写成 0 或者 99999 把守护卡死
+    [ "$HOLD" -lt 1 ] && HOLD=1
+    [ "$HOLD" -gt 20 ] && HOLD=20
+    [ "$WAIT" -lt 1 ] && WAIT=1
+    [ "$WAIT" -gt 120 ] && WAIT=120
 }
 
 # cgroup 路径是否还在普通应用的 uid 子树里（uid 10000~99999）；
@@ -144,8 +154,20 @@ music_vol() {
 # 双通道：
 #   1) getevent 实时读按键（能区分上下）
 #   2) getevent 若被 libc 缓冲住看不到输出，就用媒体音量是否变化来判（变化了也算）
+# 长按判定：目标音量键必须按住 hold 秒才算触发。
+# getevent 里该键最后一条事件还是 DOWN（说明没松手），且从首次 DOWN 起已过 hold 秒。
 key_gate() {
-    local mode="$1" secs="$2" tmp devs d v0 v1 hit i total pids p
+    local mode="$1" hold="$2"
+    local tmp devs d pids p pat hit i total v0 v1 vchg last down_at saw_key
+    case "$hold" in ''|*[!0-9]*) hold=3 ;; esac
+    [ "$hold" -lt 1 ] && hold=1
+
+    case "$mode" in
+        volup)   pat='KEY_VOLUMEUP[[:space:]]+(DOWN|UP)' ;;
+        voldown) pat='KEY_VOLUMEDOWN[[:space:]]+(DOWN|UP)' ;;
+        *)       pat='KEY_VOLUME(UP|DOWN)[[:space:]]+(DOWN|UP)' ;;
+    esac
+
     tmp="$RUNDIR/keys.txt"
     : > "$tmp" 2>/dev/null
     devs=""
@@ -164,26 +186,56 @@ key_gate() {
     v0=$(music_vol)
     pids=""
     for d in $devs; do
-        timeout -s KILL "$secs" getevent -lt "$d" >> "$tmp" 2>/dev/null &
+        timeout -s KILL "$((hold + 14))" getevent -lt "$d" >> "$tmp" 2>/dev/null &
         pids="$pids $!"
     done
 
     hit=0
-    total=$((secs * 2))
+    saw_key=0
+    vchg=0
+    down_at=-1
+    total=$(( (hold + 12) * 2 ))
     i=0
     while [ "$i" -lt "$total" ]; do
-        case "$mode" in
-            volup)   grep -qE 'KEY_VOLUMEUP[[:space:]]+DOWN' "$tmp" 2>/dev/null && hit=1 ;;
-            voldown) grep -qE 'KEY_VOLUMEDOWN[[:space:]]+DOWN' "$tmp" 2>/dev/null && hit=1 ;;
-            *)       grep -qE 'KEY_VOLUME(UP|DOWN)[[:space:]]+DOWN' "$tmp" 2>/dev/null && hit=1 ;;
-        esac
-        if [ "$hit" != "1" ] && [ -n "$v0" ] && [ $((i % 2)) -eq 0 ]; then
+        last=$(grep -E "$pat" "$tmp" 2>/dev/null | tr -d '\r' | sed 's/[[:space:]]*$//' | tail -n 1)
+        if [ -n "$last" ]; then
+            saw_key=1
+            case "$last" in
+                *DOWN)
+                    if [ "$down_at" -lt 0 ]; then
+                        down_at=$i
+                        log "key_gate: 按下，需要按住 ${hold}s"
+                    fi
+                    if [ $((i - down_at)) -ge $((hold * 2)) ]; then
+                        hit=1
+                        log "key_gate: 长按 ${hold}s 达成"
+                        break
+                    fi
+                    ;;
+                *UP)
+                    if [ "$down_at" -ge 0 ]; then
+                        log "key_gate: 只按了 $(( (i - down_at) / 2 ))s，没到 ${hold}s，重新计"
+                    fi
+                    down_at=-1
+                    ;;
+            esac
+        fi
+
+        # 退路：这台机器 getevent 读不到按键时，用「媒体音量连续变化」近似长按。
+        # 一旦 getevent 有过任何按键记录就不再走这条，免得点一下就误判。
+        if [ "$hit" != "1" ] && [ "$saw_key" = "0" ] && [ -n "$v0" ] && [ $((i % 2)) -eq 0 ]; then
             v1=$(music_vol)
             if [ -n "$v1" ] && [ "$v1" != "$v0" ]; then
-                log "key_gate: 音量变化 $v0 -> $v1（getevent 无输出，按音量键判）"
-                hit=1
+                vchg=$((vchg + 1))
+                v0=$v1
+                if [ "$vchg" -ge $((hold * 2)) ]; then
+                    log "key_gate: 音量连续变化 ${vchg} 次（getevent 无输出），按长按处理"
+                    hit=1
+                    break
+                fi
             fi
         fi
+
         [ "$hit" = "1" ] && break
         # 人已经离开目标应用就不再等（每 ~3 秒查一次，避免反复 dump 系统状态）
         if [ $((i % 6)) -eq 0 ] && [ "$i" -gt 0 ]; then
@@ -284,16 +336,31 @@ restore_data() {
     log "restore_data: 已恢复应用数据 (uid=$uid)"
 }
 
+# am start 失败时退出码常常也是 0，只能看输出里有没有 "Starting:"
+try_start() {
+    local out
+    out=$("$@" 2>&1)
+    [ -n "$out" ] && printf '%s\n' "$out" >> "$LOG"
+    case "$out" in
+        *Starting*) return 0 ;;
+    esac
+    return 1
+}
+
 launch_chen() {
     local i
     i=0
     while [ "$i" -lt 3 ]; do
-        am start --user 0 -n "$MAIN" >>"$LOG" 2>&1 && return 0
+        # 依次换入口：am --user / am（默认当前用户）/ cmd activity，某些 ROM 只认其中一种
+        try_start am start --user 0 -n "$MAIN" && return 0
+        try_start am start -n "$MAIN" && return 0
+        try_start cmd activity start-activity --user 0 -n "$MAIN" && return 0
         sleep 1
         i=$((i + 1))
     done
-    # 退路：按 LAUNCHER 意图拉起
-    am start --user 0 -a android.intent.action.MAIN -c android.intent.category.LAUNCHER -p "$PKG" >>"$LOG" 2>&1
+    # 退路：按 LAUNCHER 意图拉起 / monkey
+    try_start am start -a android.intent.action.MAIN -c android.intent.category.LAUNCHER -p "$PKG" && return 0
+    monkey -p "$PKG" -c android.intent.category.LAUNCHER 1 >>"$LOG" 2>&1
 }
 
 restore() {
@@ -398,11 +465,18 @@ run_loop() {
 
         case "$TRIGGER" in
             auto)
-                restore "auto: $cur"
+                # 打开触发应用后先等 WAIT 秒：太快就把 Chen 拉起来会打断正在用的应用
+                log "auto: 已进入 $cur，等待 ${WAIT}s"
+                sleep "$WAIT"
+                if [ "$(fg_pkg)" = "$TARGET" ]; then
+                    restore "auto(${WAIT}s): $cur"
+                else
+                    log "auto: 等待期间离开了 $TARGET，取消本次"
+                fi
                 ;;
             *)
-                if key_gate "$TRIGGER" 12; then
-                    restore "key($TRIGGER): $cur"
+                if key_gate "$TRIGGER" "$HOLD"; then
+                    restore "hold($TRIGGER,${HOLD}s): $cur"
                 fi
                 ;;
         esac

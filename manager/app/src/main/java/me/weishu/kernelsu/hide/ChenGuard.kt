@@ -33,12 +33,22 @@ object ChenGuard {
     private const val PREFS = "chen_hide"
     private const val KEY_TARGET = "guard_target"
     private const val KEY_TRIGGER = "guard_trigger"
+    private const val KEY_HOLD = "guard_hold"
+    private const val KEY_WAIT = "guard_wait"
+
+    /** 长按判定时长（秒）：按住音量键这么久才算数。 */
+    const val DEFAULT_HOLD = 3
+
+    /** 「打开就触发」的等待时长（秒）：进入触发应用后等这么久再动手。 */
+    const val DEFAULT_WAIT = 10
 
     data class Status(
         val running: Boolean = false,
         val installed: Boolean = true,
         val target: String = "",
         val trigger: String = TRIGGER_UP,
+        val hold: Int = DEFAULT_HOLD,
+        val waitSec: Int = DEFAULT_WAIT,
         val enabled: Boolean = true,
         val apkReady: Boolean = false,
         val backup: Boolean = false,
@@ -57,8 +67,21 @@ object ChenGuard {
     fun trigger(context: Context): String =
         prefs(context).getString(KEY_TRIGGER, TRIGGER_UP) ?: TRIGGER_UP
 
+    fun hold(context: Context): Int =
+        prefs(context).getInt(KEY_HOLD, DEFAULT_HOLD).coerceIn(1, 20)
+
+    fun waitSec(context: Context): Int =
+        prefs(context).getInt(KEY_WAIT, DEFAULT_WAIT).coerceIn(1, 120)
+
     fun setSelection(context: Context, target: String, trigger: String) {
         prefs(context).edit().putString(KEY_TARGET, target).putString(KEY_TRIGGER, trigger).apply()
+    }
+
+    fun setTiming(context: Context, hold: Int, waitSec: Int) {
+        prefs(context).edit()
+            .putInt(KEY_HOLD, hold.coerceIn(1, 20))
+            .putInt(KEY_WAIT, waitSec.coerceIn(1, 120))
+            .apply()
     }
 
     fun triggerLabel(context: Context, trigger: String): String = when (trigger) {
@@ -133,6 +156,8 @@ object ChenGuard {
             backup = sections["BAK"]?.toString()?.trim() == "1",
             target = confValue("TARGET"),
             trigger = confValue("TRIGGER").ifEmpty { trigger(context) },
+            hold = confValue("HOLD").toIntOrNull() ?: this.hold(context),
+            waitSec = confValue("WAIT").toIntOrNull() ?: this.waitSec(context),
             enabled = confValue("ENABLED") != "0",
             logTail = sections["LOG"]?.toString()?.trim().orEmpty(),
             output = raw,
@@ -141,9 +166,16 @@ object ChenGuard {
 
     // ------------------------------------------------------------ 布置守护
 
-    fun arm(context: Context, target: String, trigger: String): String {
+    fun arm(
+        context: Context,
+        target: String,
+        trigger: String,
+        holdSec: Int = this.hold(context),
+        waitSec: Int = this.waitSec(context),
+    ): String {
         if (target.isBlank()) return "请先选择触发应用"
         setSelection(context, target, trigger)
+        setTiming(context, holdSec, waitSec)
 
         val pkg = context.packageName
         val main = "$pkg/.GateActivity"
@@ -165,7 +197,10 @@ object ChenGuard {
                 append("cp -f '$path' '$DIR/split${index + 1}.apk' && chmod 644 '$DIR/split${index + 1}.apk'\n")
             }
 
-            append("printf '%s\\n' 'TARGET=$target' 'TRIGGER=$trigger' 'ENABLED=1' 'PKG=$pkg' 'MAIN=$main' > $CONF\n")
+            append(
+                "printf '%s\\n' 'TARGET=$target' 'TRIGGER=$trigger' 'HOLD=${holdSec.coerceIn(1, 20)}'" +
+                    " 'WAIT=${waitSec.coerceIn(1, 120)}' 'ENABLED=1' 'PKG=$pkg' 'MAIN=$main' > $CONF\n",
+            )
             append("chmod 600 $CONF\n")
             append("rm -f $DIR/uninstall.req 2>/dev/null\n")
             append("sh $DIR/guard.sh start\n")
