@@ -13,6 +13,8 @@
 
 mod apk_sign;
 mod assets;
+// 只在 Android 上有意义：依赖 module 模块与 /data/adb 下的路径
+#[cfg(target_os = "android")]
 mod boot_guard;
 mod boot_patch;
 #[cfg(target_os = "android")]
