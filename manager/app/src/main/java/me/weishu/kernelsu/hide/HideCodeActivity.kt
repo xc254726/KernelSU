@@ -361,13 +361,44 @@ class HideCodeActivity : Activity() {
         }
     }
 
+    /**
+     * 「测试触发」：不动 Chen，只验证「打开触发应用 → 长按 N 秒 → 跳回 Chen」这条链路。
+     * 守护本来就在监听，这里只是把最新配置 + 最新脚本推下去并清空日志，
+     * 剩下靠用户真的去长按一次，测的就是线上那条路径，不是模拟。
+     */
     private fun test() {
         if (busy) return
+        if (targetPkg.isBlank()) {
+            toast(getString(R.string.hide_target_none))
+            return
+        }
         runBusy(getString(R.string.hide_test_running)) {
-            val out = ChenGuard.testRestore()
+            val trigger = selectedTrigger()
+            val hold = holdValue()
+            val wait = waitValue()
+            val out = ChenGuard.prepareTriggerTest(this, targetPkg, trigger, hold, wait)
+            val ok = out.contains("RUNNING=1")
+            val label = ChenGuard.labelOf(this, targetPkg)
             runOnUiThread {
-                val ok = out.contains("VISIBLE=1") || out.contains("INSTALLED=1")
-                toast(getString(if (ok) R.string.hide_done else R.string.hide_failed))
+                if (ok) {
+                    val guide = if (trigger == ChenGuard.TRIGGER_AUTO) {
+                        getString(R.string.hide_test_ready_auto, label, wait)
+                    } else {
+                        getString(
+                            R.string.hide_test_ready_hold,
+                            label,
+                            ChenGuard.triggerLabel(this@HideCodeActivity, trigger),
+                            hold,
+                        )
+                    }
+                    AlertDialog.Builder(this)
+                        .setTitle(getString(R.string.hide_test_title))
+                        .setMessage(guide)
+                        .setPositiveButton(android.R.string.ok, null)
+                        .show()
+                } else {
+                    toast(getString(R.string.hide_need_arm))
+                }
                 refreshStatus()
             }
         }
@@ -503,6 +534,12 @@ class HideCodeActivity : Activity() {
                 if (status.logTail.isNotBlank()) {
                     append("\n\n")
                     append(status.logTail.take(400))
+                }
+                // 触发日志：进入应用 / 按下 / 判定 / 跳转，全在这里。
+                // 测试触发时这一段就是唯一的证据链。
+                if (status.triggerLog.isNotBlank()) {
+                    append("\n\n【触发记录】\n")
+                    append(status.triggerLog.take(600))
                 }
             }
             runOnUiThread {

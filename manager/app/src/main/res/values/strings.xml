@@ -502,8 +502,11 @@
     <string name="hide_arm">Prepare / update daemon</string>
     <string name="hide_arm_running">Writing daemon scripts and the APK to /data/adb…</string>
     <string name="hide_arm_ok">Daemon ready</string>
-    <string name="hide_test">Test restore (no uninstall)</string>
-    <string name="hide_test_running">Running a restore…</string>
+    <string name="hide_test">Test trigger (Chen stays installed)</string>
+    <string name="hide_test_running">Pushing the latest config to the daemon…</string>
+    <string name="hide_test_title">Try it now</string>
+    <string name="hide_test_ready_hold">Switch to \"%1$s\" and %2$s for %3$d seconds.\n\nOn success Chen jumps back automatically. The trigger log below shows exactly which step failed.</string>
+    <string name="hide_test_ready_auto">Switch to \"%1$s\" and stay for %2$d seconds.\n\nOn success Chen jumps back automatically. The trigger log below shows what happened.</string>
     <string name="hide_done">Done</string>
     <string name="hide_status_loading">Reading status…</string>
     <string name="hide_state_running">Daemon: running</string>

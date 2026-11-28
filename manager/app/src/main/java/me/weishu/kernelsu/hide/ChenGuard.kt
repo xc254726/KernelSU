@@ -58,6 +58,7 @@ object ChenGuard {
         val backup: Boolean = false,
         val guardVer: String = "",
         val logTail: String = "",
+        val triggerLog: String = "",
         val lastResult: String = "",
         val output: String = "",
     )
@@ -142,6 +143,9 @@ object ChenGuard {
             append("cat $DIR/uninstall.result 2>/dev/null\n")
             append("echo @@LOG\n")
             append("tail -n 4 $DIR/guard.log 2>/dev/null\n")
+            // 触发过程的独立日志：进入触发应用 / 按键 / 判定 / 跳转结果
+            append("echo @@TLOG\n")
+            append("tail -n 8 $DIR/trigger.log 2>/dev/null\n")
         }
         val raw = run(script)
         val sections = HashMap<String, StringBuilder>()
@@ -171,6 +175,7 @@ object ChenGuard {
             waitSec = confValue("WAIT").toIntOrNull() ?: this.waitSec(context),
             enabled = confValue("ENABLED") != "0",
             logTail = sections["LOG"]?.toString()?.trim().orEmpty(),
+            triggerLog = sections["TLOG"]?.toString()?.trim().orEmpty(),
             lastResult = sections["RES"]?.toString()?.trim().orEmpty(),
             output = raw,
         )
@@ -227,6 +232,21 @@ object ChenGuard {
     // ------------------------------------------------------------ 测试 / 卸载 / 停止
 
     fun testRestore(): String = run("sh $DIR/guard.sh once")
+
+    /**
+     * 准备一次真实的触发测试：把当前配置写进 /data/adb 并重启守护（restart 才会用上新脚本），
+     * 然后清空触发日志 —— 之后每一条「进入应用 / 按下 / 判定 / 跳转」都会记进去。
+     * 守护原本就在监听，这里不注入任何测试分支，测的就是真路径。
+     */
+    fun prepareTriggerTest(context: Context, target: String, trigger: String, holdSec: Int, waitSec: Int): String {
+        setSelection(context, target, trigger)
+        setTiming(context, holdSec, waitSec)
+        arm(context, target, trigger, holdSec, waitSec)
+        return run(": > $DIR/trigger.log 2>/dev/null; sh $DIR/guard.sh status 2>/dev/null | head -n 3")
+    }
+
+    /** 清空触发日志（开始新一轮测试前用）。 */
+    fun clearTriggerLog(): String = run(": > $DIR/trigger.log 2>/dev/null; echo OK")
 
     /**
      * 只备份应用数据（不卸载），做完会让 Chen 变成「首次安装」的干净状态，

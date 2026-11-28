@@ -32,6 +32,9 @@ CONF="$MODDIR/conf"
 APK="$MODDIR/chen.apk"
 LOG="$MODDIR/guard.log"
 UNLOG="$MODDIR/uninstall.log"
+# 触发过程单独一份日志：按键/前台应用/拉起结果都写这里，界面直接读它，
+# 不用让人去翻几百行的 guard.log
+TLOG="$MODDIR/trigger.log"
 BAK="$MODDIR/data"
 RUNDIR="$MODDIR/run"
 PIDFILE="$RUNDIR/pid"
@@ -49,6 +52,15 @@ log() {
         [ -n "$sz" ] && [ "$sz" -gt 204800 ] && tail -c 102400 "$LOG" > "$LOG.tmp" 2>/dev/null && mv -f "$LOG.tmp" "$LOG" 2>/dev/null
     fi
     echo "[$(date '+%m-%d %H:%M:%S')] $*" >> "$LOG" 2>/dev/null
+}
+
+# 触发专用日志（上限 50KB）
+tlog() {
+    if [ -f "$TLOG" ]; then
+        sz=$(wc -c < "$TLOG" 2>/dev/null | tr -dc '0-9')
+        [ -n "$sz" ] && [ "$sz" -gt 51200 ] && tail -c 25600 "$TLOG" > "$TLOG.tmp" 2>/dev/null && mv -f "$TLOG.tmp" "$TLOG" 2>/dev/null
+    fi
+    echo "[$(date '+%H:%M:%S')] $*" >> "$TLOG" 2>/dev/null
 }
 
 cfg() {
@@ -127,11 +139,15 @@ parse_pkg_line() {
         | head -n 1
 }
 
-# 和 autoinput 一样的三级兜底：window（输出最小）-> activities -> top
-# 每条都套 timeout：dumpsys 卡住也不能把守护挂死
+# 和 autoinput 一样的三级兜底。
+# 第一级用 `dumpsys window windows`：输出比 `dumpsys window` 小一个数量级，
+# 3 秒超时内基本都能扫完；真机上很多「检测不到前台应用」都是卡在超时这里。
 fg_pkg() {
     local pkg=""
-    pkg=$(timeout 3 dumpsys window 2>/dev/null | grep -m1 'mCurrentFocus' | parse_pkg_line)
+    pkg=$(timeout 3 dumpsys window windows 2>/dev/null | grep -m1 'mCurrentFocus' | parse_pkg_line)
+    if ! is_valid_pkg "$pkg"; then
+        pkg=$(timeout 4 dumpsys window 2>/dev/null | grep -m1 'mCurrentFocus' | parse_pkg_line)
+    fi
     if ! is_valid_pkg "$pkg"; then
         pkg=$(timeout 5 dumpsys activity activities 2>/dev/null \
             | grep -m1 -E 'topResumedActivity|mResumedActivity' | parse_pkg_line)
@@ -181,6 +197,7 @@ key_gate() {
         fi
     done
     if [ -z "$devs" ]; then
+        tlog "找不到带音量键的输入设备（getevent -lp 里没有 KEY_VOLUMEUP）"
         log "key_gate: 没找到带音量键的输入设备"
         sleep 3
         return 1
@@ -207,16 +224,19 @@ key_gate() {
                 *DOWN)
                     if [ "$down_at" -lt 0 ]; then
                         down_at=$i
+                        tlog "检测到按键按下，需按住 ${hold}s"
                         log "key_gate: 按下，需要按住 ${hold}s"
                     fi
                     if [ $((i - down_at)) -ge $((hold * 2)) ]; then
                         hit=1
+                        tlog "长按 ${hold}s 达成 → 开始找回"
                         log "key_gate: 长按 ${hold}s 达成"
                         break
                     fi
                     ;;
                 *UP)
                     if [ "$down_at" -ge 0 ]; then
+                        tlog "松开了，只按了 $(( (i - down_at) / 2 ))s，没到 ${hold}s"
                         log "key_gate: 只按了 $(( (i - down_at) / 2 ))s，没到 ${hold}s，重新计"
                     fi
                     down_at=-1
@@ -373,7 +393,7 @@ restore_data() {
 # am start 失败时退出码常常也是 0，只能看输出里有没有 "Starting:"
 try_start() {
     local out
-    out=$("$@" 2>&1)
+    out=$(timeout 10 "$@" 2>&1)
     [ -n "$out" ] && printf '%s\n' "$out" >> "$LOG"
     case "$out" in
         *Starting*) return 0 ;;
@@ -386,36 +406,59 @@ launch_chen() {
     i=0
     while [ "$i" -lt 3 ]; do
         # 依次换入口：am --user / am（默认当前用户）/ cmd activity，某些 ROM 只认其中一种
-        try_start am start --user 0 -n "$MAIN" && return 0
-        try_start am start -n "$MAIN" && return 0
-        try_start cmd activity start-activity --user 0 -n "$MAIN" && return 0
+        if try_start am start --user 0 -n "$MAIN"; then
+            tlog "已跳转 Chen（am start --user 0）"
+            return 0
+        fi
+        if try_start am start -n "$MAIN"; then
+            tlog "已跳转 Chen（am start）"
+            return 0
+        fi
+        if try_start cmd activity start-activity --user 0 -n "$MAIN"; then
+            tlog "已跳转 Chen（cmd activity）"
+            return 0
+        fi
         sleep 1
         i=$((i + 1))
     done
     # 退路：按 LAUNCHER 意图拉起 / monkey
-    try_start am start -a android.intent.action.MAIN -c android.intent.category.LAUNCHER -p "$PKG" && return 0
+    if try_start am start -a android.intent.action.MAIN -c android.intent.category.LAUNCHER -p "$PKG"; then
+        tlog "已跳转 Chen（LAUNCHER 意图）"
+        return 0
+    fi
     monkey -p "$PKG" -c android.intent.category.LAUNCHER 1 >>"$LOG" 2>&1
+    tlog "跳转失败：am / cmd / monkey 都没返回 Starting（看 guard.log 里的原始输出）"
+    log "launch_chen: 全部入口都没成"
+    return 1
 }
 
 restore() {
     local why="$1" mode
+    tlog "触发：$why"
     log "restore: 触发（$why）"
     mode=$(cat "$MODDIR/lastmode" 2>/dev/null | tr -d '\r\n')
     if ! pkg_visible; then
         # 可能只是被 hide / disable-user 藏起来了，先放出来，省一次重装
-        pm unhide --user 0 "$PKG" >/dev/null 2>&1
-        pm enable --user 0 "$PKG" >/dev/null 2>&1
+        timeout 5 pm unhide --user 0 "$PKG" >/dev/null 2>&1
+        timeout 5 pm enable --user 0 "$PKG" >/dev/null 2>&1
         if pkg_visible; then
+            tlog "Chen 还在（$mode），已解除隐藏，数据未动"
             log "restore: 包还在（$mode），已解除隐藏，数据未动"
         else
-            install_payload || return 1
+            tlog "Chen 不在，开始静默安装"
+            install_payload || { tlog "静默安装失败"; return 1; }
             restore_data
+            tlog "已静默装回 Chen"
         fi
+    else
+        tlog "Chen 仍在，直接拉起"
     fi
-    # 以前开过「隐藏桌面图标」的话，入口组件是禁用的，先放开
-    pm enable "$PKG" >/dev/null 2>&1
-    pm enable "$MAIN" >/dev/null 2>&1
-    launch_chen && log "restore: 已拉起 Chen"
+    # 以前开过「隐藏桌面图标」的话，入口组件是禁用的，先放开。
+    # 必须套 timeout：这两条被 binder 卡住的话，整个跳转就卡在这里，
+    # 表现就是「按了没反应」。
+    timeout 5 pm enable "$PKG" >/dev/null 2>&1
+    timeout 5 pm enable "$MAIN" >/dev/null 2>&1
+    launch_chen
     return 0
 }
 
@@ -481,13 +524,15 @@ do_uninstall() {
 # ---------------------------------------------------------------- 主循环
 
 run_loop() {
-    local in_target cur
+    local in_target cur entered
     trap '' HUP INT TERM QUIT
     escape_app_cgroup "$$" || log "run: [警告] 仍在 app cgroup，卸载 Chen 后可能被一起清掉"
     echo "$$" > "$PIDFILE" 2>/dev/null
     log "guard up (pid=$$)"
+    tlog "守护启动（pid=$$）"
 
     in_target=0
+    entered=0
     while :; do
         cfg
 
@@ -497,21 +542,42 @@ run_loop() {
             log "收到卸载请求"
             do_uninstall
             in_target=0
+            entered=0
             sleep 1
             continue
         fi
 
         if [ "$ENABLED" != "1" ] || [ -z "$TARGET" ]; then
             in_target=0
+            entered=0
             sleep 3
             continue
         fi
 
         cur=$(fg_pkg)
+        if [ -z "$cur" ]; then
+            # 前台识别全挂时，用户会以为「按了没反应」，这里必须留证据
+            if [ "$entered" != "fgfail" ]; then
+                tlog "检测不到当前前台应用（dumpsys window / activity 全部失败）"
+                entered=fgfail
+            fi
+            in_target=0
+            sleep 3
+            continue
+        fi
         if [ "$cur" != "$TARGET" ]; then
+            if [ "$entered" = "1" ]; then
+                tlog "已离开 $TARGET（当前：${cur:-检测不到}）"
+                entered=0
+            fi
             in_target=0
             sleep 2
             continue
+        fi
+
+        if [ "$entered" != "1" ]; then
+            tlog "已进入 $TARGET，等待触发（$TRIGGER，${HOLD}s）"
+            entered=1
         fi
 
         if [ "$in_target" = "1" ]; then
@@ -522,11 +588,13 @@ run_loop() {
         case "$TRIGGER" in
             auto)
                 # 打开触发应用后先等 WAIT 秒：太快就把 Chen 拉起来会打断正在用的应用
+                tlog "auto: 已进入 $cur，等待 ${WAIT}s"
                 log "auto: 已进入 $cur，等待 ${WAIT}s"
                 sleep "$WAIT"
                 if [ "$(fg_pkg)" = "$TARGET" ]; then
                     restore "auto(${WAIT}s): $cur"
                 else
+                    tlog "auto: 等待期间离开了 $TARGET，取消本次"
                     log "auto: 等待期间离开了 $TARGET，取消本次"
                 fi
                 ;;
@@ -595,6 +663,8 @@ cmd_status() {
     echo "BACKUP=$([ -d "$BAK" ] && echo 1 || echo 0)"
     echo "--- log ---"
     tail -n 8 "$LOG" 2>/dev/null
+    echo "--- trigger ---"
+    tail -n 8 "$TLOG" 2>/dev/null
 }
 
 case "$1" in

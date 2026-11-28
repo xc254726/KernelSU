@@ -494,8 +494,11 @@
     <string name="hide_arm">布置 / 更新守护</string>
     <string name="hide_arm_running">正在把守护脚本和 Chen 的安装包写到 /data/adb…</string>
     <string name="hide_arm_ok">守护已就位</string>
-    <string name="hide_test">测试找回（不卸载）</string>
-    <string name="hide_test_running">正在执行一次找回…</string>
+    <string name="hide_test">测试触发（不动 Chen）</string>
+    <string name="hide_test_running">正在把最新配置推给守护…</string>
+    <string name="hide_test_title">去试一次</string>
+    <string name="hide_test_ready_hold">现在切到「%1$s」，%2$s 按满 %3$d 秒。\n\n判定成功会自动跳回 Chen。回来这里能看到「触发记录」，哪一步没成会写清楚。</string>
+    <string name="hide_test_ready_auto">现在切到「%1$s」，停留 %2$d 秒别退出。\n\n判定成功会自动跳回 Chen。回来这里能看到「触发记录」。</string>
     <string name="hide_done">完成</string>
     <string name="hide_status_loading">读取状态…</string>
     <string name="hide_state_running">守护：运行中</string>
