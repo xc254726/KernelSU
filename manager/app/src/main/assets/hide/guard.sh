@@ -414,9 +414,13 @@ do_uninstall() {
 
     if [ -n "$mode" ] && ! pkg_visible; then
         echo "$mode" > "$MODDIR/lastmode" 2>/dev/null
+        printf 'RESULT=ok\nMODE=%s\nAT=%s\n' "$mode" "$(date '+%m-%d %H:%M:%S')" > "$MODDIR/uninstall.result" 2>/dev/null
         log "uninstall: ok（方式 $mode），Chen 已从桌面和应用列表消失，守护继续运行"
     else
         rm -f "$MODDIR/lastmode" 2>/dev/null
+        why=$(grep -E 'Failure|Exception|Error|denied|not installed|Unknown' "$LOG" 2>/dev/null | tail -n 1 | cut -c1-160)
+        [ -z "$why" ] && why="pm 全部返回非 0 且 Chen 仍可见"
+        printf 'RESULT=fail\nWHY=%s\nAT=%s\n' "$why" "$(date '+%m-%d %H:%M:%S')" > "$MODDIR/uninstall.result" 2>/dev/null
         log "uninstall: 失败，Chen 仍然可见；守护未改动"
     fi
     rm -f "$MODDIR/uninstall.req" 2>/dev/null
@@ -543,6 +547,7 @@ cmd_status() {
 
 case "$1" in
     start) cmd_start ;;
+    restart) cmd_stop; sleep 1; cmd_start ;;
     stop) cmd_stop ;;
     run) run_loop ;;
     status) cmd_status ;;

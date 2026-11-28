@@ -525,4 +525,6 @@
     <string name="hide_seconds_unit">秒</string>
     <string name="hide_trigger_desc_hold">%1$s 满 %2$d 秒</string>
     <string name="hide_trigger_desc_wait">打开后等待 %1$d 秒</string>
+    <string name="hide_last_ok">上次隐藏：成功（%1$s） %2$s</string>
+    <string name="hide_last_fail">上次隐藏失败：%1$s</string>
 </resources>

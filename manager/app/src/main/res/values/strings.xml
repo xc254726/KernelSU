@@ -533,4 +533,6 @@
     <string name="hide_seconds_unit">s</string>
     <string name="hide_trigger_desc_hold">%1$s for %2$d s</string>
     <string name="hide_trigger_desc_wait">wait %1$d s after opening</string>
+    <string name="hide_last_ok">Last hide: succeeded (%1$s) %2$s</string>
+    <string name="hide_last_fail">Last hide failed: %1$s</string>
 </resources>

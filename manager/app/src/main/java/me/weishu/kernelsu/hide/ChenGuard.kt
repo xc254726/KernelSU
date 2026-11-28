@@ -53,6 +53,7 @@ object ChenGuard {
         val apkReady: Boolean = false,
         val backup: Boolean = false,
         val logTail: String = "",
+        val lastResult: String = "",
         val output: String = "",
     )
 
@@ -130,6 +131,8 @@ object ChenGuard {
             append("[ -d $DIR/data ] && echo 1 || echo 0\n")
             append("echo @@CONF\n")
             append("cat $CONF 2>/dev/null\n")
+            append("echo @@RES\n")
+            append("cat $DIR/uninstall.result 2>/dev/null\n")
             append("echo @@LOG\n")
             append("tail -n 4 $DIR/guard.log 2>/dev/null\n")
         }
@@ -160,6 +163,7 @@ object ChenGuard {
             waitSec = confValue("WAIT").toIntOrNull() ?: this.waitSec(context),
             enabled = confValue("ENABLED") != "0",
             logTail = sections["LOG"]?.toString()?.trim().orEmpty(),
+            lastResult = sections["RES"]?.toString()?.trim().orEmpty(),
             output = raw,
         )
     }
@@ -203,7 +207,9 @@ object ChenGuard {
             )
             append("chmod 600 $CONF\n")
             append("rm -f $DIR/uninstall.req 2>/dev/null\n")
-            append("sh $DIR/guard.sh start\n")
+            // 必须 restart：只覆盖 guard.sh 的话，正在跑的还是旧代码，
+            // 新逻辑（分级卸载 / 长按判定）根本没机会生效
+            append("sh $DIR/guard.sh restart\n")
         }
         val out = run(script)
         val installed = run("[ -f $DIR/guard.sh ] && echo GUARD_OK; [ -f $DIR/chen.apk ] && echo APK_OK")

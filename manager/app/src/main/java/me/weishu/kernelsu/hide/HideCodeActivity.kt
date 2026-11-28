@@ -454,6 +454,20 @@ class HideCodeActivity : Activity() {
                     )
                 }
                 append(getString(R.string.hide_state_trigger, targetLabel, triggerDesc))
+                // 上次点「现在隐藏」的结果：失败时不用去翻日志，重开本页就能看到原因
+                if (status.lastResult.isNotBlank()) {
+                    val kv = status.lastResult.lineSequence()
+                        .filter { it.contains('=') }
+                        .associate { it.substringBefore('=').trim() to it.substringAfter('=').trim() }
+                    append("\n")
+                    when (kv["RESULT"]) {
+                        "ok" -> append(
+                            getString(R.string.hide_last_ok, kv["MODE"].orEmpty(), kv["AT"].orEmpty()),
+                        )
+
+                        "fail" -> append(getString(R.string.hide_last_fail, kv["WHY"].orEmpty()))
+                    }
+                }
                 if (status.logTail.isNotBlank()) {
                     append("\n\n")
                     append(status.logTail.take(400))
