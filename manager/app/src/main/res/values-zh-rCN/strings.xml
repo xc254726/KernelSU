@@ -510,10 +510,11 @@
     <string name="hide_hide_section">隐藏（卸载 Chen）</string>
     <string name="hide_hide_tip">卸载后桌面、应用列表里都不会有 Chen，就是一个没装过它的系统。找回来只需打开上面那个应用，按你设定的方式触发。</string>
     <string name="hide_hide_button">现在隐藏（卸载 Chen）</string>
-    <string name="hide_hide_confirm">会先把 Chen 的应用数据备份到 /data/adb/chen_guard/data，再卸载 Chen。之后打开「触发应用」、按你设定的长按时长或等待时长触发，即可装回来，数据一起恢复。确认继续？</string>
+    <string name="hide_hide_confirm">会先把 Chen 的应用数据备份到 /data/adb/chen_guard/data，然后用 root 卸载 Chen。\n\n若系统拒绝 root 卸载（部分机型会），会自动弹出系统卸载确认框，点「确定」即可。\n\n之后打开「触发应用」、按你设定的长按时长或等待时长触发，即可装回来，数据一起恢复。</string>
     <string name="hide_hide_running">正在备份数据并卸载…</string>
     <string name="hide_hide_queued">已排队：Chen 马上会消失。用触发应用 + 你设定的方式找回。</string>
     <string name="hide_sys_confirm">系统会弹出「要卸载此应用吗」，点「确定」即完成隐藏</string>
+    <string name="hide_root_running">正在用 root 卸载…（若不成功会自动弹出系统卸载框）</string>
     <string name="hide_backup_failed">应用数据备份失败，为了能找回你的设置，这次没有卸载</string>
     <string name="hide_need_arm">请先点「布置守护」，否则卸载后没有东西能把它装回来</string>
     <string name="hide_stop">停止守护并清除开机自启</string>

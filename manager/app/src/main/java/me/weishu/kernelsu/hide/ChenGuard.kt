@@ -282,7 +282,23 @@ object ChenGuard {
 
     /** 让守护备份数据后把 Chen 卸载掉（守护自己是 init 侧进程，不受影响）。 */
     fun requestUninstall(): String =
-        run("touch $DIR/uninstall.req && echo OK")
+        run("rm -f $DIR/uninstall.result 2>/dev/null; touch $DIR/uninstall.req && echo OK")
+
+    /**
+     * 阻塞等守护写下卸载结果，最多 [seconds] 秒。
+     * 用一条 shell 在设备侧 sleep 轮询，比在 App 里每秒新建一次 root shell 便宜得多。
+     */
+    fun waitResult(seconds: Int = 25): String = run(
+        buildString {
+            append("i=0; while [ \"\$i\" -lt $seconds ]; do ")
+            append("[ -f $DIR/uninstall.result ] && break; ")
+            append("sleep 1; i=\$((i + 1)); done; ")
+            append("cat $DIR/uninstall.result 2>/dev/null")
+        },
+    )
+
+    /** 读守护刚写下的卸载结果（RESULT / MODE / WHY / DIAG）。 */
+    fun readResult(): String = run("cat $DIR/uninstall.result 2>/dev/null")
 
     fun disarm(): String = run(
         buildString {

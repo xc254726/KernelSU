@@ -259,8 +259,29 @@ key_gate() {
 # 包对 user 0 是否「看得见」。
 # 不能用 pm path 判断：hide / disable-user 之后 pm path 照样有输出，
 # 但桌面、应用列表、搜索里都已经没有了——那才是用户要的「删掉」。
+#
+# 但列表命令本身也可能失败（返回空），这时不能当成「包没了」，
+# 否则 try_pm 会把每一次失败都误判成成功。所以先看列表是否像个正常列表。
 pkg_visible() {
-    pm list packages -e --user 0 2>/dev/null | tr -d '\r' | grep -qx "package:$PKG"
+    local list n
+    list=$(timeout 8 pm list packages -e --user 0 2>/dev/null | tr -d '\r')
+    n=$(printf '%s\n' "$list" | grep -c '^package:')
+    if [ "${n:-0}" -gt 20 ]; then
+        printf '%s\n' "$list" | grep -qx "package:$PKG"
+        return $?
+    fi
+    # 列表异常，退回最原始的存在性判断
+    pm path "$PKG" >/dev/null 2>&1
+}
+
+# root 身份到底能不能调通 PMS？拿一个绝对不存在的包试：
+#   正常  → "Failure [not installed for 0]"
+#   通道坏 → "Failure calling service package: Failed transaction (…)"
+# 这一条无损，但能一句话定位「是包特殊还是整条路都断」。
+pms_probe() {
+    local out
+    out=$(timeout 8 pm uninstall --user 0 com.chen.guard.probe 2>&1)
+    printf '%s' "$out" | tr '\n' ' ' | cut -c1-140
 }
 
 # 跑一条包管理命令，成功且包从用户视角消失才算通过。
@@ -268,7 +289,7 @@ pkg_visible() {
 # 原始输出（含 exception）全量落到 uninstall.log，失败时才有东西可查。
 try_pm() {
     local rc out
-    out=$(timeout 12 "$@" 2>&1)
+    out=$(timeout 8 "$@" 2>&1)
     rc=$?
     { printf '%% %s\nrc=%s\n%s\n\n' "$*" "$rc" "$out"; } >> "$UNLOG" 2>/dev/null
     # 卸载是异步的，PMS 落盘/广播要一点时间，立刻查会读旧状态
@@ -301,11 +322,16 @@ install_payload() {
         pm install-multiple -r -d -g --user 0 "$@" >>"$LOG" 2>&1
         rc=$?
     else
+        # 三级：原生 → 伪装成 shell 域（installd 只认 system_server / shell 域）→ cmd
         pm install -r -d -g --user 0 "$APK" >>"$LOG" 2>&1
         rc=$?
-        if [ "$rc" != "0" ]; then
-            # 老版本 pm 不认 --user，退回最简形式
-            pm install -r -d "$APK" >>"$LOG" 2>&1
+        if [ "$rc" != "0" ] || ! pkg_visible; then
+            log "install: 直接 pm 失败(rc=$rc)，改用 shell 域重试"
+            runcon u:r:shell:s0 pm install -r -d -g --user 0 "$APK" >>"$LOG" 2>&1
+            rc=$?
+        fi
+        if [ "$rc" != "0" ] && ! pkg_visible; then
+            cmd package install -r -d -g --user 0 "$APK" >>"$LOG" 2>&1
             rc=$?
         fi
     fi
@@ -396,8 +422,11 @@ restore() {
 # ---------------------------------------------------------------- 卸载（备份数据）
 
 do_uninstall() {
-    local mode="" why=""
+    local mode="" why="" diag
     : > "$UNLOG" 2>/dev/null
+    diag="uid=$(id -u) ctx=$(cat /proc/self/attr/current 2>/dev/null) probe=$(pms_probe)"
+    log "uninstall: 诊断 → $diag"
+
     rm -rf "$BAK" 2>/dev/null
     mkdir -p "$BAK" 2>/dev/null
     if [ -d "/data/data/$PKG" ]; then
@@ -406,34 +435,44 @@ do_uninstall() {
     fi
 
     # 关键一步：先停掉 Chen 自己。
-    # 上一版在 Chen 还活着的时候直接 pm uninstall，PMS 回的是
+    # 在 Chen 还活着的时候直接 pm uninstall，PMS 常回
     # 「Failed transaction (EX_BAD_PARCELABLE)」——包正持有 PackageInstaller
-    # 会话 / 正被 binder 引用时，deletePackage 会在中途抛出来，两条卸载命令全废。
+    # 会话 / 正被 binder 引用时，deletePackage 会在中途抛出来。
     am force-stop "$PKG" >/dev/null 2>&1
     am force-stop "$MAIN" >/dev/null 2>&1
     sleep 2
 
     if pkg_visible; then
-        if   try_pm pm uninstall --user 0 "$PKG";          then mode="uninstall"
-        elif try_pm cmd package uninstall --user 0 "$PKG"; then mode="uninstall"
-        elif try_pm pm uninstall -k --user 0 "$PKG";       then mode="uninstall-keep"
-        elif try_pm pm hide --user 0 "$PKG";               then mode="hide"
-        elif try_pm pm disable-user --user 0 "$PKG";       then mode="disable"
-        elif try_pm pm disable --user 0 "$PKG";            then mode="disable"
+        # 为什么还要 runcon 一层：
+        # 卸载最后一步由 installd 执行，而 installd 只认 system_server 的请求，
+        # 不看 uid 0。所以 `pm uninstall` 以 root 身份调用会被 installd 顶回来，
+        # PMS 内部抛异常 → 客户端只看到 Failed transaction。
+        # adb 能卸载，是因为它以 shell 域调用；这里用 runcon 把域切成 shell，
+        # 走的正是同一条被允许的路径。
+        if   try_pm pm uninstall --user 0 "$PKG";                     then mode="uninstall"
+        elif try_pm runcon u:r:shell:s0 pm uninstall --user 0 "$PKG";  then mode="uninstall-shell"
+        elif try_pm pm hide --user 0 "$PKG";                          then mode="hide"
+        elif try_pm pm disable-user --user 0 "$PKG";                  then mode="disable"
         fi
+    fi
+
+    # 没有哪条命令报成功、包却已经不见了 = 界面那边等不及弹了系统卸载框，
+    # 用户点确定把包删了。这同样算成功，别写成 fail 让人白担心。
+    if [ -z "$mode" ] && ! pkg_visible; then
+        mode="external"
     fi
 
     if [ -n "$mode" ] && ! pkg_visible; then
         echo "$mode" > "$MODDIR/lastmode" 2>/dev/null
-        printf 'RESULT=ok\nMODE=%s\nAT=%s\n' "$mode" "$(date '+%m-%d %H:%M:%S')" > "$MODDIR/uninstall.result" 2>/dev/null
+        printf 'RESULT=ok\nMODE=%s\nDIAG=%s\nAT=%s\n' "$mode" "$diag" "$(date '+%m-%d %H:%M:%S')" > "$MODDIR/uninstall.result" 2>/dev/null
         log "uninstall: ok（方式 $mode），Chen 已从桌面和应用列表消失，守护继续运行"
     else
         rm -f "$MODDIR/lastmode" 2>/dev/null
         # 从 uninstall.log 里挑最后一条带异常关键词的行，比 grep guard.log 准得多
         why=$(grep -aE 'Failure|Exception|Error|denied|not installed|Unknown|Failure \[' "$UNLOG" 2>/dev/null \
-            | tail -n 1 | tr -d '\r' | cut -c1-160)
+            | tail -n 1 | tr -d '\r' | cut -c1-140)
         [ -z "$why" ] && why="pm 全部非 0 且 Chen 仍可见"
-        printf 'RESULT=fail\nWHY=%s\nAT=%s\n' "$why" "$(date '+%m-%d %H:%M:%S')" > "$MODDIR/uninstall.result" 2>/dev/null
+        printf 'RESULT=fail\nWHY=%s\nDIAG=%s\nAT=%s\n' "$why" "$diag" "$(date '+%m-%d %H:%M:%S')" > "$MODDIR/uninstall.result" 2>/dev/null
         log "uninstall: 失败（$why）；Chen 仍可见，守护未改动"
     fi
     rm -f "$MODDIR/uninstall.req" 2>/dev/null

@@ -406,9 +406,27 @@ class HideCodeActivity : Activity() {
                 return@runBusy
             }
 
-            // 3) 交给系统卸载器。root 的 pm uninstall 在这台机器上会被 PMS 拦掉
-            //    （Failed transaction），但「用户主动卸载」永远走得通。
+            // 3) 让守护用 root 卸。守护是 init 侧进程，本 App 被杀它也不受影响。
+            runOnUiThread { statusView.text = getString(R.string.hide_root_running) }
+            ChenGuard.requestUninstall()
+
+            // 4) 盯着结果。卸载真的成功的话，本进程会被系统当场杀掉，
+            //    根本执行不到下面这段；能执行到，就说明 root 这条路没通。
+            val result = ChenGuard.waitResult(25)
+
+            if (result.contains("RESULT=ok")) {
+                // 极端情况下（包已被别的方式处理）进程还在，直接收尾
+                runOnUiThread { toast(getString(R.string.hide_done)) }
+                return@runBusy
+            }
+
+            // 5) root 没卸掉：把真实原因摆到界面上，然后交给系统卸载器兜底。
+            //    这一层不受 root/installd 的限制，系统自己的卸载器永远有权删自己。
+            val why = result.lineSequence()
+                .firstOrNull { it.startsWith("WHY=") }
+                ?.removePrefix("WHY=")?.trim().orEmpty()
             runOnUiThread {
+                if (why.isNotBlank()) statusView.text = getString(R.string.hide_last_fail, why)
                 val ok = runCatching { ChenGuard.systemUninstall(this) }.getOrDefault(false)
                 toast(getString(if (ok) R.string.hide_sys_confirm else R.string.hide_failed))
                 if (!ok) refreshStatus()
@@ -471,7 +489,15 @@ class HideCodeActivity : Activity() {
                             getString(R.string.hide_last_ok, kv["MODE"].orEmpty(), kv["AT"].orEmpty()),
                         )
 
-                        "fail" -> append(getString(R.string.hide_last_fail, kv["WHY"].orEmpty()))
+                        "fail" -> {
+                            append(getString(R.string.hide_last_fail, kv["WHY"].orEmpty()))
+                            // 诊断行：uid / SELinux 域 / 用一个不存在的包探出来的 PMS 通道状态
+                            val diag = kv["DIAG"].orEmpty()
+                            if (diag.isNotBlank()) {
+                                append("\n")
+                                append(diag)
+                            }
+                        }
                     }
                 }
                 if (status.logTail.isNotBlank()) {
