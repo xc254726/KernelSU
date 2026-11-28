@@ -508,6 +508,7 @@
     <string name="hide_status_loading">Reading status…</string>
     <string name="hide_state_running">Daemon: running</string>
     <string name="hide_state_stopped">Daemon: stopped</string>
+    <string name="hide_state_guard_ver">script v%1$s</string>
     <string name="hide_state_apk_ok">APK: ready</string>
     <string name="hide_state_apk_missing">APK: missing</string>
     <string name="hide_state_installed">Chen: still there</string>
@@ -520,6 +521,8 @@
     <string name="hide_hide_confirm">Chen data is backed up to /data/adb/chen_guard/data first, then Chen is uninstalled. Later, open the trigger app and press a volume key to install it back with data restored. Continue?</string>
     <string name="hide_hide_running">Backing up data and uninstalling…</string>
     <string name="hide_hide_queued">Queued: Chen disappears in 3 seconds. Use the trigger app + volume key to restore.</string>
+    <string name="hide_sys_confirm">The system will ask to uninstall — tap OK to finish hiding</string>
+    <string name="hide_backup_failed">Backing up app data failed, so nothing was uninstalled</string>
     <string name="hide_need_arm">Prepare the daemon first, otherwise nothing can reinstall Chen</string>
     <string name="hide_stop">Stop daemon and remove boot hook</string>
     <string name="hide_stop_running">Stopping…</string>

@@ -26,9 +26,12 @@
 #   uninstall 立即备份数据并卸载 Chen（app 通过 uninstall.req 触发，也可手动跑）
 
 MODDIR=/data/adb/chen_guard
+# 版本号：界面会读这个值，用来确认 /data/adb 里跑的是不是最新脚本
+GUARD_VER=4
 CONF="$MODDIR/conf"
 APK="$MODDIR/chen.apk"
 LOG="$MODDIR/guard.log"
+UNLOG="$MODDIR/uninstall.log"
 BAK="$MODDIR/data"
 RUNDIR="$MODDIR/run"
 PIDFILE="$RUNDIR/pid"
@@ -260,16 +263,21 @@ pkg_visible() {
     pm list packages -e --user 0 2>/dev/null | tr -d '\r' | grep -qx "package:$PKG"
 }
 
-# 跑一条包管理命令，成功且包从用户视角消失才算通过
+# 跑一条包管理命令，成功且包从用户视角消失才算通过。
+# 每条都套 timeout：某些 ROM 上 pm 会卡在 binder 里几十秒，把界面拖死。
+# 原始输出（含 exception）全量落到 uninstall.log，失败时才有东西可查。
 try_pm() {
-    local rc
-    "$@" >>"$LOG" 2>&1
+    local rc out
+    out=$(timeout 12 "$@" 2>&1)
     rc=$?
+    { printf '%% %s\nrc=%s\n%s\n\n' "$*" "$rc" "$out"; } >> "$UNLOG" 2>/dev/null
+    # 卸载是异步的，PMS 落盘/广播要一点时间，立刻查会读旧状态
+    sleep 1
     if [ "$rc" = "0" ] && ! pkg_visible; then
         log "pm: 成功 ← $*"
         return 0
     fi
-    log "pm: 失败 rc=$rc ← $*"
+    log "pm: 失败 rc=$rc ← $* $(printf '%s' "$out" | tr '\n' ' ' | cut -c1-120)"
     return 1
 }
 
@@ -388,11 +396,12 @@ restore() {
 # ---------------------------------------------------------------- 卸载（备份数据）
 
 do_uninstall() {
-    local mode=""
+    local mode="" why=""
+    : > "$UNLOG" 2>/dev/null
     rm -rf "$BAK" 2>/dev/null
     mkdir -p "$BAK" 2>/dev/null
     if [ -d "/data/data/$PKG" ]; then
-        cp -a "/data/data/$PKG/." "$BAK/" 2>>"$LOG"
+        cp -a "/data/data/$PKG/." "$BAK/" 2>>"$UNLOG"
         log "uninstall: 已备份数据 $(du -sk "$BAK" 2>/dev/null | awk '{print $1}')KB"
     fi
 
@@ -401,6 +410,7 @@ do_uninstall() {
     # 「Failed transaction (EX_BAD_PARCELABLE)」——包正持有 PackageInstaller
     # 会话 / 正被 binder 引用时，deletePackage 会在中途抛出来，两条卸载命令全废。
     am force-stop "$PKG" >/dev/null 2>&1
+    am force-stop "$MAIN" >/dev/null 2>&1
     sleep 2
 
     if pkg_visible; then
@@ -409,6 +419,7 @@ do_uninstall() {
         elif try_pm pm uninstall -k --user 0 "$PKG";       then mode="uninstall-keep"
         elif try_pm pm hide --user 0 "$PKG";               then mode="hide"
         elif try_pm pm disable-user --user 0 "$PKG";       then mode="disable"
+        elif try_pm pm disable --user 0 "$PKG";            then mode="disable"
         fi
     fi
 
@@ -418,10 +429,12 @@ do_uninstall() {
         log "uninstall: ok（方式 $mode），Chen 已从桌面和应用列表消失，守护继续运行"
     else
         rm -f "$MODDIR/lastmode" 2>/dev/null
-        why=$(grep -E 'Failure|Exception|Error|denied|not installed|Unknown' "$LOG" 2>/dev/null | tail -n 1 | cut -c1-160)
-        [ -z "$why" ] && why="pm 全部返回非 0 且 Chen 仍可见"
+        # 从 uninstall.log 里挑最后一条带异常关键词的行，比 grep guard.log 准得多
+        why=$(grep -aE 'Failure|Exception|Error|denied|not installed|Unknown|Failure \[' "$UNLOG" 2>/dev/null \
+            | tail -n 1 | tr -d '\r' | cut -c1-160)
+        [ -z "$why" ] && why="pm 全部非 0 且 Chen 仍可见"
         printf 'RESULT=fail\nWHY=%s\nAT=%s\n' "$why" "$(date '+%m-%d %H:%M:%S')" > "$MODDIR/uninstall.result" 2>/dev/null
-        log "uninstall: 失败，Chen 仍然可见；守护未改动"
+        log "uninstall: 失败（$why）；Chen 仍可见，守护未改动"
     fi
     rm -f "$MODDIR/uninstall.req" 2>/dev/null
 }

@@ -1,5 +1,6 @@
 package me.weishu.kernelsu.hide
 
+import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ApplicationInfo
@@ -21,6 +22,9 @@ import me.weishu.kernelsu.ui.util.createRootShell
 object ChenGuard {
 
     const val DIR = "/data/adb/chen_guard"
+
+    /** PackageInstaller 卸载结果的回调 action（UninstallReceiver 认它）。 */
+    const val ACTION_UNINSTALL_RESULT = "me.weishu.kernelsu.UNINSTALL_RESULT"
     private const val CONF = "$DIR/conf"
     private const val BOOT = "/data/adb/service.d/chen-guard.sh"
     private const val LATE = "/data/adb/late-load.d/chen-guard.sh"
@@ -52,6 +56,7 @@ object ChenGuard {
         val enabled: Boolean = true,
         val apkReady: Boolean = false,
         val backup: Boolean = false,
+        val guardVer: String = "",
         val logTail: String = "",
         val lastResult: String = "",
         val output: String = "",
@@ -129,6 +134,8 @@ object ChenGuard {
             append("[ -f $DIR/chen.apk ] && echo 1 || echo 0\n")
             append("echo @@BAK\n")
             append("[ -d $DIR/data ] && echo 1 || echo 0\n")
+            append("echo @@GVER\n")
+            append("sed -n 's/^GUARD_VER=//p' $DIR/guard.sh 2>/dev/null | head -n 1 | tr -dc '0-9'\n")
             append("echo @@CONF\n")
             append("cat $CONF 2>/dev/null\n")
             append("echo @@RES\n")
@@ -157,6 +164,7 @@ object ChenGuard {
             installed = sections["INST"]?.toString()?.trim() != "0",
             apkReady = sections["APK"]?.toString()?.trim() == "1",
             backup = sections["BAK"]?.toString()?.trim() == "1",
+            guardVer = sections["GVER"]?.toString()?.trim().orEmpty(),
             target = confValue("TARGET"),
             trigger = confValue("TRIGGER").ifEmpty { trigger(context) },
             hold = confValue("HOLD").toIntOrNull() ?: this.hold(context),
@@ -219,6 +227,58 @@ object ChenGuard {
     // ------------------------------------------------------------ 测试 / 卸载 / 停止
 
     fun testRestore(): String = run("sh $DIR/guard.sh once")
+
+    /**
+     * 只备份应用数据（不卸载），做完会让 Chen 变成「首次安装」的干净状态，
+     * 所以必须在真的卸载之前跑，而且要在 App 进程还活着的时候跑
+     * —— 守护那边的 do_uninstall 一旦 force-stop，这个 shell 也跟着没了。
+     */
+    fun backupData(context: Context): String {
+        val pkg = context.packageName
+        return run(
+            buildString {
+                append("rm -rf $DIR/data 2>/dev/null; mkdir -p $DIR/data 2>/dev/null\n")
+                append("cp -a /data/data/$pkg/. $DIR/data/ 2>&1\n")
+                append("echo @@SZ\n")
+                append("du -sk $DIR/data 2>/dev/null | awk '{print \$1}'\n")
+            },
+        )
+    }
+
+    /**
+     * 让**系统**把自己卸掉。
+     *
+     * 为什么不用 pm uninstall：这台机器（realme / Android 15）上 root 身份调
+     * PackageManagerService 的 deletePackage 会被内部拦掉，回的是
+     * 「Failed transaction (2147483646)」，六条降级命令全废。
+     * PackageInstaller.uninstall() 是以本应用身份发起的「用户卸载请求」，
+     * 由系统卸载器执行，走的是完全不同的路径，不受 root/域策略影响，必成。
+     *
+     * 代价只有一个：系统会弹一次「要卸载此应用吗」，点确定即可。
+     */
+    fun systemUninstall(activity: android.app.Activity): Boolean {
+        val pkg = activity.packageName
+        val pi = activity.packageManager.packageInstaller
+
+        // 首选：PackageInstaller 直接弹确认框，不跳设置、不换界面
+        runCatching {
+            val intent = Intent(activity, UninstallReceiver::class.java).setAction(ACTION_UNINSTALL_RESULT)
+            val flags = PendingIntent.FLAG_UPDATE_CURRENT or
+                if (android.os.Build.VERSION.SDK_INT >= 31) PendingIntent.FLAG_MUTABLE else 0
+            val sender = PendingIntent.getBroadcast(activity, 0, intent, flags)
+            pi.uninstall(pkg, sender.intentSender)
+            return true
+        }
+
+        // 退路：系统卸载界面（个别 ROM 屏蔽了上面的 API）
+        return runCatching {
+            activity.startActivity(
+                Intent(Intent.ACTION_DELETE, android.net.Uri.parse("package:$pkg"))
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+            )
+            true
+        }.getOrDefault(false)
+    }
 
     /** 让守护备份数据后把 Chen 卸载掉（守护自己是 init 侧进程，不受影响）。 */
     fun requestUninstall(): String =

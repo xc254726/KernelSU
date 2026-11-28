@@ -389,26 +389,29 @@ class HideCodeActivity : Activity() {
                 runOnUiThread { toast(getString(R.string.hide_target_none)) }
                 return@runBusy
             }
-            // 卸载前必须确认守护真的在跑：否则 Chen 一消失就再也没东西能把它装回来
+            // 1) 卸载前必须确认守护真的在跑：否则 Chen 一消失就再也没东西能把它装回来
             ChenGuard.arm(this, targetPkg, selectedTrigger(), holdValue(), waitValue())
             val status = ChenGuard.status(this)
             if (!status.apkReady || !status.running) {
                 runOnUiThread { toast(getString(R.string.hide_need_arm)) }
                 return@runBusy
             }
-            ChenGuard.setSelection(this, targetPkg, selectedTrigger())
-            val out = ChenGuard.requestUninstall()
+
+            // 2) 备份数据。必须在 App 还活着的时候做——卸载一旦开始，本进程连同
+            //    这一个 root shell 都会被一起收掉。
+            val bak = ChenGuard.backupData(this)
+            val sizeKb = Regex("""@@SZ\s*(\d+)""").find(bak)?.groupValues?.get(1)?.toIntOrNull() ?: 0
+            if (sizeKb < 8) {
+                runOnUiThread { toast(getString(R.string.hide_backup_failed)) }
+                return@runBusy
+            }
+
+            // 3) 交给系统卸载器。root 的 pm uninstall 在这台机器上会被 PMS 拦掉
+            //    （Failed transaction），但「用户主动卸载」永远走得通。
             runOnUiThread {
-                if (out.contains("OK")) {
-                    toast(getString(R.string.hide_hide_queued))
-                    // 守护要在 3 秒后才动手，这里停一会儿再刷新状态，
-                    // 让「Chen：仍在 / 已隐藏」和最后几行日志直接显示出来，
-                    // 失败时不用再去翻 guard.log 才知道原因
-                    android.os.Handler(android.os.Looper.getMainLooper())
-                        .postDelayed({ if (!isFinishing) refreshStatus() }, 9000)
-                } else {
-                    toast(getString(R.string.hide_failed))
-                }
+                val ok = runCatching { ChenGuard.systemUninstall(this) }.getOrDefault(false)
+                toast(getString(if (ok) R.string.hide_sys_confirm else R.string.hide_failed))
+                if (!ok) refreshStatus()
             }
         }
     }
@@ -435,6 +438,9 @@ class HideCodeActivity : Activity() {
             val trigger = status.trigger.ifBlank { ChenGuard.trigger(this) }
             val text = buildString {
                 append(getString(if (status.running) R.string.hide_state_running else R.string.hide_state_stopped))
+                append(" · ")
+                // 守护脚本版本：确认真机 /data/adb 里跑的是这一版，而不是装完没重新布置
+                append(getString(R.string.hide_state_guard_ver, status.guardVer.ifEmpty { "-" }))
                 append(" · ")
                 append(getString(if (status.apkReady) R.string.hide_state_apk_ok else R.string.hide_state_apk_missing))
                 append(" · ")

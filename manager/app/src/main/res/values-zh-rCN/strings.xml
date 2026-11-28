@@ -500,6 +500,7 @@
     <string name="hide_status_loading">读取状态…</string>
     <string name="hide_state_running">守护：运行中</string>
     <string name="hide_state_stopped">守护：未运行</string>
+    <string name="hide_state_guard_ver">脚本 v%1$s</string>
     <string name="hide_state_apk_ok">安装包：已备好</string>
     <string name="hide_state_apk_missing">安装包：缺失</string>
     <string name="hide_state_installed">Chen：仍在（桌面可见）</string>
@@ -512,6 +513,8 @@
     <string name="hide_hide_confirm">会先把 Chen 的应用数据备份到 /data/adb/chen_guard/data，再卸载 Chen。之后打开「触发应用」、按你设定的长按时长或等待时长触发，即可装回来，数据一起恢复。确认继续？</string>
     <string name="hide_hide_running">正在备份数据并卸载…</string>
     <string name="hide_hide_queued">已排队：Chen 马上会消失。用触发应用 + 你设定的方式找回。</string>
+    <string name="hide_sys_confirm">系统会弹出「要卸载此应用吗」，点「确定」即完成隐藏</string>
+    <string name="hide_backup_failed">应用数据备份失败，为了能找回你的设置，这次没有卸载</string>
     <string name="hide_need_arm">请先点「布置守护」，否则卸载后没有东西能把它装回来</string>
     <string name="hide_stop">停止守护并清除开机自启</string>
     <string name="hide_stop_running">正在停止…</string>
