@@ -64,6 +64,13 @@ pub fn on_post_fs_data() -> Result<()> {
         warn!("handle updated modules failed: {e}");
     }
 
+    // 启动失败自动回滚：上一次开机没等到 boot_completed，就把最近安装的模块禁掉，
+    // 保证这一次能进系统。必须放在 handle_updated_modules 之后——它会把 update 标记
+    // 处理掉并顺手删掉 disable，放前面会被它覆盖回去。
+    if crate::boot_guard::on_boot_start() {
+        warn!("bootloop protection: 上次开机未完成，已禁用可疑模块，本次不再执行其脚本");
+    }
+
     if let Err(e) = prune_modules() {
         warn!("prune modules failed: {e}");
     }
@@ -182,6 +189,9 @@ pub fn on_boot_completed() {
 
     ksucalls::report_boot_complete();
     info!("on_boot_completed triggered!");
+
+    // 顺利到桌面：把失败计数清零，正常重启不会累积
+    crate::boot_guard::on_boot_complete();
 
     crate::preinit::on_boot_completed();
 

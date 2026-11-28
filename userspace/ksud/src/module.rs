@@ -845,6 +845,8 @@ pub fn install_module(zip: &str) -> Result<()> {
     ksucalls::ensure_uapi_version_matched()?;
 
     let module_id = install_module_to_system(zip).inspect_err(|e| println!("- Error: {e}"))?;
+    // 记下最近安装的模块：万一它把开机卡死，下一次开机优先把它禁用，好让系统能起来
+    crate::boot_guard::remember_install(&module_id);
     if let Err(e) = regenerate_preinit() {
         warn!("regenerate preinit failed: {e:#}");
     }
