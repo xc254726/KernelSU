@@ -109,7 +109,7 @@ pub fn on_boot_start() -> bool {
 
     if let Some(id) = last {
         // 只认 modules/ 下真实存在的普通模块目录：
-        //   * symlink 是 metamodule（框架本身），禁掉它解决不了问题，退回全禁普通模块；
+        //   * symlink 是 metamodule（框架本身），禁掉它解决不了问题，直接跳过；
         //   * 校验 id，防止状态文件被改后去动别的路径。
         let path = Path::new(defs::MODULE_DIR).join(&id);
         if path.is_dir() && !path.is_symlink() && crate::module::validate_module_id(&id).is_ok() {
@@ -121,7 +121,14 @@ pub fn on_boot_start() -> bool {
     }
 
     if disabled.is_empty() {
-        disabled = disable_regular_modules();
+        // 没有可信的「最近安装模块」记录时不搞全禁。
+        // boot_completed 的回调万一某次没跑到，计数会残留；这时如果无脑禁全部，
+        // 用户正常在用的模块会一起被停掉，比原来的问题还严重。宁可这次放过。
+        fs::remove_file(attempts_path()).ok();
+        append_log(&format!(
+            "bootloop-protect after {n} attempts, but no last_module; skipped"
+        ));
+        return true;
     }
 
     // 这一轮已经处理过，重新开始观察
@@ -131,45 +138,4 @@ pub fn on_boot_start() -> bool {
         disabled.join(",")
     ));
     true
-}
-
-/// 兜底：不知道是哪个模块时，禁用 modules/ 下所有普通模块。
-/// metamodule 是框架本身（在 modules/ 下是 symlink），禁掉它不但不解决问题，还可能更糟。
-fn disable_regular_modules() -> Vec<String> {
-    let mut done = Vec::new();
-    let Ok(entries) = fs::read_dir(defs::MODULE_DIR) else {
-        return done;
-    };
-
-    for entry in entries.flatten() {
-        let path = entry.path();
-        if path.is_symlink() || !path.is_dir() {
-            continue;
-        }
-        let Some(id) = path.file_name().and_then(|s| s.to_str()) else {
-            continue;
-        };
-        if crate::module::validate_module_id(id).is_err() {
-            continue;
-        }
-        let marker = path.join(defs::DISABLE_FILE_NAME);
-        if marker.exists() {
-            continue; // 本来就是禁用的
-        }
-        if fs::OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(&marker)
-            .is_ok()
-        {
-            done.push(id.to_owned());
-        }
-    }
-
-    if !done.is_empty()
-        && let Err(e) = crate::module::regenerate_preinit()
-    {
-        warn!("boot_guard: regenerate preinit failed: {e:#}");
-    }
-    done
 }
