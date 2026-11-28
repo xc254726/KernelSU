@@ -96,5 +96,6 @@ data class SettingsScreenActions(
     val onSetUseSoftReboot: (Boolean) -> Unit,
     val onOpenWebUi: (String, String) -> Unit,
     val onOpenAutoInput: () -> Unit,
+    val onOpenHide: () -> Unit,
     val onOpenAbout: () -> Unit,
 )

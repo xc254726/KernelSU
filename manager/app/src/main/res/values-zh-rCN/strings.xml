@@ -477,4 +477,19 @@
     <string name="autoinput_confirm">确定</string>
     <string name="autoinput_back">返回</string>
     <string name="autoinput_files_empty">此目录没有 sh 脚本</string>
+
+    <!-- 隐藏面具：拨号暗号入口 -->
+    <string name="hide_title">隐藏面具</string>
+    <string name="hide_summary">拨号暗号打开，可隐藏桌面图标</string>
+    <string name="hide_intro">设一个只有你知道的数字。之后在手机拨号盘输入这个暗号就能打开本应用——桌面图标隐藏了也能进。隐藏图标只是把入口藏起来，不会卸载任何东西：root、模块、设置全都不受影响。</string>
+    <string name="hide_code_label">暗号（纯数字）</string>
+    <string name="hide_icon_label">隐藏桌面图标</string>
+    <string name="hide_icon_summary">开启后，桌面和应用搜索里都找不到本应用，只能靠拨号暗号进来。</string>
+    <string name="hide_save">保存</string>
+    <string name="hide_test">去拨号盘试一试</string>
+    <string name="hide_bad_code">暗号请用 3–10 位数字</string>
+    <string name="hide_saved_hidden">已保存。图标已隐藏，拨暗号即可打开。</string>
+    <string name="hide_saved_shown">已保存。图标已恢复显示。</string>
+    <string name="hide_icon_failed">修改桌面图标失败</string>
+    <string name="hide_no_dialer">没找到电话应用</string>
 </resources>

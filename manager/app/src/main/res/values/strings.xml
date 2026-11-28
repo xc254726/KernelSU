@@ -485,4 +485,19 @@
     <string name="autoinput_confirm">OK</string>
     <string name="autoinput_back">Back</string>
     <string name="autoinput_files_empty">No script here</string>
+
+    <!-- 隐藏面具：拨号暗号入口 -->
+    <string name="hide_title">Hide app</string>
+    <string name="hide_summary">Open by dialing a secret code; hide the launcher icon</string>
+    <string name="hide_intro">Set a secret number. After that you can open this app by typing the code in the phone dialer — even when the launcher icon is hidden. Hiding the icon does not uninstall anything: root, modules and settings all keep working.</string>
+    <string name="hide_code_label">Secret code (digits only)</string>
+    <string name="hide_icon_label">Hide launcher icon</string>
+    <string name="hide_icon_summary">When enabled, this app disappears from the launcher and from desktop search. Dial the code to get back in.</string>
+    <string name="hide_save">Save</string>
+    <string name="hide_test">Open dialer to test</string>
+    <string name="hide_bad_code">Use 3–10 digits</string>
+    <string name="hide_saved_hidden">Saved. Icon hidden — dial the code to open.</string>
+    <string name="hide_saved_shown">Saved. Icon is visible again.</string>
+    <string name="hide_icon_failed">Failed to change the launcher icon</string>
+    <string name="hide_no_dialer">No phone app found</string>
 </resources>

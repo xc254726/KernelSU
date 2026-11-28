@@ -37,6 +37,7 @@ import androidx.compose.material.icons.rounded.Security
 import androidx.compose.material.icons.rounded.SystemUpdate
 import androidx.compose.material.icons.rounded.SystemUpdateAlt
 import androidx.compose.material.icons.rounded.VerifiedUser
+import androidx.compose.material.icons.rounded.VisibilityOff
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -130,6 +131,29 @@ fun SettingPagerMiuix(
                                 )
                             },
                             onClick = actions.onOpenAutoInput,
+                        )
+                    }
+                }
+
+                item {
+                    Card(
+                        modifier = Modifier
+                            .padding(top = 12.dp)
+                            .fillMaxWidth(),
+                    ) {
+                        val hideTitle = stringResource(id = R.string.hide_title)
+                        ArrowPreference(
+                            title = hideTitle,
+                            summary = stringResource(id = R.string.hide_summary),
+                            startAction = {
+                                Icon(
+                                    Icons.Rounded.VisibilityOff,
+                                    modifier = Modifier.padding(end = 6.dp),
+                                    contentDescription = hideTitle,
+                                    tint = colorScheme.onBackground
+                                )
+                            },
+                            onClick = actions.onOpenHide,
                         )
                     }
                 }

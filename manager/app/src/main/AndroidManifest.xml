@@ -163,6 +163,23 @@
             android:taskAffinity="${applicationId}.webui"
             android:theme="@style/Theme.KernelSU.WebUI" />
 
+        <activity
+            android:name=".hide.HideCodeActivity"
+            android:exported="false"
+            android:label="@string/hide_title"
+            android:theme="@android:style/Theme.DeviceDefault.Light.NoActionBar" />
+
+        <!-- 拨号暗号：只声明 scheme，不写 host，这样任意数字都能收到，
+             具体认哪个由用户在「隐藏面具」里设。 -->
+        <receiver
+            android:name=".hide.SecretCodeReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.provider.Telephony.SECRET_CODE" />
+                <data android:scheme="android_secret_code" />
+            </intent-filter>
+        </receiver>
+
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.fileprovider"

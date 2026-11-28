@@ -36,6 +36,7 @@ import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.SystemUpdate
 import androidx.compose.material.icons.filled.SystemUpdateAlt
 import androidx.compose.material.icons.filled.VerifiedUser
+import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LargeFlexibleTopAppBar
 import androidx.compose.material3.SnackbarHostState
@@ -114,6 +115,24 @@ fun SettingPagerMaterial(
                                 Icon(
                                     Icons.Filled.EditNote,
                                     stringResource(id = R.string.autoinput_title)
+                                )
+                            },
+                            trailingContent = {
+                                Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null)
+                            },
+                        )
+                    },
+                    {
+                        SegmentedListItem(
+                            onClick = actions.onOpenHide,
+                            headlineContent = { Text(stringResource(id = R.string.hide_title)) },
+                            supportingContent = {
+                                Text(stringResource(id = R.string.hide_summary))
+                            },
+                            leadingContent = {
+                                Icon(
+                                    Icons.Filled.VisibilityOff,
+                                    stringResource(id = R.string.hide_title)
                                 )
                             },
                             trailingContent = {

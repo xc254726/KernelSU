@@ -80,6 +80,11 @@ fun SettingPager(
         },
         onOpenAbout = { navigator.push(Route.About) },
         onOpenAutoInput = { navigator.push(Route.AutoInput) },
+        onOpenHide = {
+            context.startActivity(
+                Intent(context, me.weishu.kernelsu.hide.HideCodeActivity::class.java)
+            )
+        },
     )
 
     when (LocalUiMode.current) {
